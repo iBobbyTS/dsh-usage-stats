@@ -302,6 +302,15 @@ console.log("apply ok, sidebar action, composer quota and provider configuration
 const extrasMarkup = renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
 	{ provider: { provider: "zai", settingsNs: "llm-pi-ai" }, configured: true }));
 assert.match(extrasMarkup, /data-provider-monitor-settings="zai"/);
+assert.match(extrasMarkup, /class="usg_providerExtrasStatus" role="status"/);
+const extrasRule = (name) => source.match(new RegExp(`\\.${name}\\{([^}]+)\\}`))?.[1] ?? "";
+assert.match(extrasRule("usg_providerExtrasActions"), /margin-top:12px/, "actions need spacing below the form grid");
+assert.match(extrasRule("usg_providerExtrasActions"), /flex-wrap:wrap/, "narrow action rows must wrap");
+assert.match(extrasRule("usg_providerExtrasStatus"), /overflow-wrap:anywhere/, "long adapter identifiers must not push the save button out");
+assert.match(extrasRule("usg_providerExtrasSave"), /flex:0 0 auto/, "save button must not shrink");
+assert.match(extrasRule("usg_providerExtrasSave"), /color:var\(--dsw-alias-label-primary-foreground,var\(--dsw-alias-bg-base\)\)/, "save text must use a theme-aware contrasting foreground");
+assert.doesNotMatch(extrasRule("usg_providerExtrasSave"), /#fff|--dsw-alias-fill-primary/);
+assert.match(extrasRule("usg_providerExtrasControl"), /background:var\(--dsw-alias-bg-layer-2\)/);
 assert.match(extrasMarkup, /new-api/);
 assert.match(extrasMarkup, /window:monthly/);
 assert.match(extrasMarkup, /Upstream provider protocol override/);
