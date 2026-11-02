@@ -442,6 +442,17 @@ const deepseekMarkup = renderToStaticMarkup(react.createElement(ProviderAccountC
 	translate: translateAccount,
 	onRetry: () => {}
 }));
+for (const balance of [null, { remaining: 0, currency: "CNY", unlimited: false }, { remaining: 17.85, currency: "CNY", unlimited: false }]) {
+	const markup = renderToStaticMarkup(react.createElement(ProviderAccountCard, {
+		provider: { id: "relay-a", displayName: "Relay A", accountMode: "balance", adapter: "new-api" },
+		account: { id: "relay-a", mode: "balance", adapter: "new-api", status: "ok", balance },
+		accountLoading: false, accountError: null, translate: translateAccount, onRetry: () => {}
+	}));
+	assert.equal(markup.includes('class="usg_balanceAmount"'), balance !== null, "missing New API account quota must hide the amount, but zero remains visible");
+	assert.equal(markup.includes("balance.error"), false, "missing optional account quota is not a query error");
+	assert.equal(markup.includes("balance.loading"), false, "a completed response without account quota must not keep loading");
+	assert.equal(markup.includes("∞"), false, "New API account balance is not an unlimited token quota");
+}
 const goSubscription = {
 	id: "opencode-go",
 	displayName: "OpenCode Go",
@@ -465,6 +476,70 @@ if (!deepseekMarkup.includes("usg_accountCard") || !goMarkup.includes("usg_accou
 if (!deepseekMarkup.includes("data-account-mode=\"balance\"") || !deepseekMarkup.includes("DeepSeek") || deepseekMarkup.includes("progressbar")) throw new Error("DeepSeek must render only monetary balance data");
 if (!goMarkup.includes("data-account-mode=\"subscription\"") || !goMarkup.includes("OpenCode Go")) throw new Error("OpenCode Go must render the subscription account mode");
 if ((goMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !goMarkup.includes("width:12%")) throw new Error("OpenCode Go must render three quota meters");
+// Hover reuses the real card and only exposes the current subscription windows.
+{
+	const saved = { docAdd: document.addEventListener, docRemove: document.removeEventListener,
+		winAdd: window.addEventListener, winRemove: window.removeEventListener,
+		width: window.innerWidth, height: window.innerHeight };
+	const listeners = new Map();
+	document.addEventListener = (name, listener) => listeners.set(name, listener);
+	document.removeEventListener = (name) => listeners.delete(name);
+	window.addEventListener = (name, listener) => listeners.set(name, listener);
+	window.removeEventListener = (name) => listeners.delete(name);
+	window.innerWidth = 800; window.innerHeight = 600;
+	const triggerNode = { getBoundingClientRect: () => ({ right: 780, top: 550, bottom: 590 }), contains: () => false };
+	const previewNode = { nodeType: 1, contains: (target) => target === previewNode };
+	const props = { provider: { id: goSubscription.id, displayName: goSubscription.displayName },
+		account: { ...goSubscription, mode: "subscription" }, accountLoading: false,
+		accountError: null, translate: translateAccount, onRetry: () => {}, disabled: false,
+		children: react.createElement("button", { onClick: () => {} }, "badge") };
+	let renderer;
+	act(() => { renderer = TestRenderer.create(react.createElement(exports_.QuotaHoverCard, props), {
+		createNodeMock: (node) => node.props["data-usage-stats-quota-preview"] ? previewNode : triggerNode
+	}); });
+	const wrapper = () => renderer.root.findByProps({ className: "usg_footerButtons" });
+	const previews = () => renderer.root.findAllByProps({ "data-usage-stats-quota-preview": true });
+	assert.equal(previews().length, 0);
+	act(() => wrapper().props.onMouseEnter());
+	assert.equal(previews().length, 1);
+	assert.equal(renderer.root.findAllByType(ProviderAccountCard).length, 1, "hover must reuse the existing account card");
+	assert.equal(renderer.root.findAllByProps({ role: "progressbar" }).length, 3, "all quota windows must be visible");
+	assert.equal(previews()[0].props.style.left, 428, "preview stays inside the right viewport edge");
+	assert.equal(previews()[0].props.style.bottom, 12, "preview aligns to the badge and stays above the bottom viewport edge");
+	act(() => wrapper().props.onMouseLeave({ relatedTarget: previewNode }));
+	assert.equal(previews().length, 1, "moving into the card must keep it open");
+	act(() => listeners.get("keydown")({ type: "keydown", key: "Escape" }));
+	assert.equal(previews().length, 0);
+	act(() => wrapper().props.onFocus());
+	assert.equal(previews().length, 1, "keyboard focus also exposes quotas");
+	act(() => wrapper().props.onClickCapture({ target: triggerNode }));
+	assert.equal(previews().length, 0, "click leaves the normal detail-panel action intact");
+	act(() => wrapper().props.onMouseEnter());
+	act(() => wrapper().props.onMouseLeave({ relatedTarget: null }));
+	await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+	assert.equal(previews().length, 0, "leaving closes the preview");
+	for (const override of [
+		{ account: deepseekAccount, provider: { id: deepseekAccount.id } },
+		{ account: { ...props.account, windows: [] } },
+		{ account: { ...props.account, id: "other-provider" } },
+		{ disabled: true }
+	]) {
+		act(() => renderer.update(react.createElement(exports_.QuotaHoverCard, { ...props, ...override })));
+		act(() => wrapper().props.onMouseEnter());
+		assert.equal(previews().length, 0, "balance, empty, stale identity and open detail panel must not show quota hover");
+	}
+	act(() => renderer.update(react.createElement(exports_.QuotaHoverCard, props)));
+	act(() => wrapper().props.onMouseEnter());
+	act(() => renderer.update(react.createElement(exports_.QuotaHoverCard, { ...props, provider: { id: "other" } })));
+	assert.equal(previews().length, 0, "switching provider clears the old preview");
+	act(() => renderer.unmount());
+	assert.equal(listeners.size, 0, "unmount cleans up global listeners");
+	document.addEventListener = saved.docAdd; document.removeEventListener = saved.docRemove;
+	window.addEventListener = saved.winAdd; window.removeEventListener = saved.winRemove;
+	window.innerWidth = saved.width; window.innerHeight = saved.height;
+	assert.ok(source.includes("react_jsx_runtime.jsx(QuotaHoverCard, {"), "sidebar must mount the tested hover wrapper");
+	console.log("quota hover card: reuse, all windows, balance exclusion, dismissal and identity guards ok");
+}
 for (const [window, expected] of [
 	[{ kind: "quota", label: "ZCode credit", amount: 75 }, "75"],
 	[{ kind: "quota", label: "Zero credit", amount: 0 }, "0"],
@@ -652,6 +727,10 @@ if (!unknownBudget.includes("—") || !unknownBudget.includes("Unknown")) throw 
 
 // Collapsed-badge account value + warning policy (v0.2.0 unified account model).
 const { badgeAccountValue, badgeWarnOf } = exports_;
+for (const displayMetric of ["auto", "balance"]) {
+	assert.equal(badgeAccountValue({ adapter: "new-api", mode: "balance", status: "ok", balance: null }, displayMetric), null, "missing account quota must hide the compact balance too");
+	assert.equal(badgeAccountValue({ adapter: "new-api", mode: "balance", status: "ok", balance: { remaining: 0, currency: "CNY" } }, displayMetric)?.value, 0, "zero account quota must remain visible in the compact balance");
+}
 // balance just above the threshold => normal, no warning
 const balanceOk = badgeAccountValue({ mode: "balance", status: "ok", balance: { remaining: 6, currency: "USD" } });
 if (balanceOk === null || balanceOk.kind !== "balance" || balanceOk.value !== 6) throw new Error(`balance 6 must render amount, got ${JSON.stringify(balanceOk)}`);

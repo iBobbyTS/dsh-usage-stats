@@ -42,6 +42,8 @@ The promotional provider integration, auto-install preset, and the associated wa
 | 📦 | 安全导出 | 提供 daily/session CSV 与版本化 JSON；Unicode、CSV 公式前缀和不完整费用均安全处理 |
 | 🔒 | 本机安全边界 | 数据端点仅接受回环 GET；Provider 额度配置由带防跨站请求头的显式回环 POST 写入；凭据只在服务端解析 |
 
+侧栏「用量/余额」入口支持额度悬停预览：当前供应商为额度型账户且有额度窗口时，鼠标悬停或键盘聚焦会复用账户卡片展示全部窗口；移开、按 Escape 或打开完整面板后关闭。预览沿用当前账户缓存，不额外请求上游；余额型账户不增加悬停卡片。
+
 界面支持中文和英文。浏览器只请求当前选择的 provider；账户自动刷新由服务端统一调度。手动刷新会更新用量、供应商列表，并强制刷新当前账户，不会批量强制请求其他供应商。
 
 ## 快速安装 / Quick start
@@ -349,7 +351,7 @@ DSH 0.2 的 provider registry 可能只提供 `zai-coding-cn` 的 route id，而
 <details>
 <summary><strong>展开 monitor 配置示例</strong></summary>
 
-New API 默认用 provider 推理 Token 查询 `/api/usage/token/`，并从 `/api/status` 读取实例自己的 `quota_per_unit`：
+New API 默认用 provider 推理 Token 查询 `/api/usage/token/`，只使用响应中 `data.user_quota.total_available` 展示账户余额，并从 `/api/status` 读取实例自己的 `quota_per_unit` 与币种换算配置。需要在 New API 的 API Key 设置中开启「允许查询用户额度」；未返回有效账户余额字段时不显示余额，不会回退到 Token 自身额度。Token 的不限额标记与有效期不代表账户余额属性：
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml

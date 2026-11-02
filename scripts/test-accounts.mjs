@@ -330,9 +330,10 @@ console.log("IPv4/IPv6 private-address classification ok");
 			calls.push({ url: String(url), init });
 			if (String(url).endsWith("/api/status")) return jsonResponse({ data: { quota_per_unit: 500000, quota_display_type: "USD", usd_exchange_rate: 6.73 } });
 			return jsonResponse({ code: true, data: {
-				total_granted: 1500000,
-				total_used: 500000,
-				total_available: 1000000,
+				total_granted: 999999999,
+				total_used: 999999998,
+				total_available: 1,
+				user_quota: { total_available: 1000000, total_used: 500000 },
 				unlimited_quota: false,
 				expires_at: 1798761600
 			} });
@@ -345,12 +346,12 @@ console.log("IPv4/IPv6 private-address classification ok");
 		total: 3,
 		currency: "USD",
 		unlimited: false,
-		expiresAt: "2027-01-01T00:00:00.000Z"
+		expiresAt: null
 	});
 	assert.deepEqual(account.alert, { level: "normal", metric: "remaining-percent", value: 66.7 });
 	assert.equal(calls[0].init.headers.authorization, "Bearer sk-relay");
 	assert.equal(JSON.stringify(account).includes("sk-relay"), false);
-	console.log("New API token-scoped normalization ok");
+	console.log("New API account quota ignores token counters and expiry ok");
 }
 
 {
@@ -364,7 +365,8 @@ console.log("IPv4/IPv6 private-address classification ok");
 			: jsonResponse({ code: true, data: {
 				total_granted: 7500000,
 				total_used: 2500000,
-				total_available: 5000000,
+				total_available: 1,
+				user_quota: { total_available: 5000000, total_used: 2500000 },
 				unlimited_quota: false
 			} })
 	});
@@ -376,7 +378,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 		unlimited: false,
 		expiresAt: null
 	});
-	console.log("New API token route converts every CNY balance component ok");
+	console.log("New API user quota converts every CNY balance component ok");
 }
 
 {
@@ -388,7 +390,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 			now: () => now,
 			fetch: async (url) => String(url).endsWith("/api/status")
 				? jsonResponse({}, statusCode)
-				: jsonResponse({ code: true, data: { total_granted: 5000000, total_used: 0, total_available: 5000000 } })
+				: jsonResponse({ code: true, data: { user_quota: { total_available: 5000000, total_used: 0 } } })
 		});
 		assert.deepEqual({ remaining: account.balance.remaining, currency: account.balance.currency }, { remaining: 10, currency: "USD" });
 		assert.equal(account.quotaUnit, 500000);
@@ -398,7 +400,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 		now: () => now,
 		fetch: async (url) => String(url).endsWith("/api/status")
 			? jsonResponse({ data: {} })
-			: jsonResponse({ code: true, data: { total_granted: 5000000, total_used: 0, total_available: 5000000 } })
+			: jsonResponse({ code: true, data: { user_quota: { total_available: 5000000, total_used: 0 } } })
 	});
 	assert.deepEqual({ remaining: missingStatusFields.balance.remaining, currency: missingStatusFields.balance.currency }, { remaining: 10, currency: "USD" });
 	assert.equal(missingStatusFields.quotaUnitFallback, true);
@@ -413,7 +415,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 		const account = await queryAccount(spec, credentials({ RELAY_A_KEY: "sk-relay" }), {
 			now: () => now,
 			fetch: async (url) => {
-				if (!String(url).endsWith("/api/status")) return jsonResponse({ code: true, data: { total_granted: 5000000, total_used: 0, total_available: 5000000 } });
+				if (!String(url).endsWith("/api/status")) return jsonResponse({ code: true, data: { user_quota: { total_available: 5000000, total_used: 0 } } });
 				const statusBody = { data: { quota_per_unit: 500000, quota_display_type: "CNY", usd_exchange_rate: usdExchangeRate } };
 				if (usdExchangeRate !== Infinity) return jsonResponse(statusBody);
 				return { ok: true, status: 200, headers: { get: () => "application/json" }, json: async () => statusBody };
@@ -434,7 +436,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 			now: () => now,
 			fetch: async (url) => String(url).endsWith("/api/status")
 				? jsonResponse({ data: { quota_per_unit: 500000, quota_display_type: quotaDisplayType } })
-				: jsonResponse({ code: true, data: { total_granted: 5000000, total_used: 0, total_available: 5000000 } })
+				: jsonResponse({ code: true, data: { user_quota: { total_available: 5000000, total_used: 0 } } })
 		});
 		assert.equal(account.status, "unsupported");
 		assert.equal(account.balance, null, `${quotaDisplayType} must not enter the ISO currency field`);
@@ -450,12 +452,12 @@ console.log("IPv4/IPv6 private-address classification ok");
 		now: () => now,
 		fetch: async (url) => String(url).endsWith("/api/status")
 			? jsonResponse({ data: { quota_per_unit: 500000, quota_display_type: "USD" } })
-			: jsonResponse({ code: true, data: { total_granted: 0, total_used: 0, total_available: null, unlimited_quota: true } })
+			: jsonResponse({ code: true, data: { total_granted: 0, total_used: 0, total_available: null, unlimited_quota: true, user_quota: { total_available: 1000000, total_used: 500000 } } })
 	});
 	assert.equal(account.status, "ok");
-	assert.deepEqual(account.balance, { remaining: null, used: 0, total: 0, currency: "USD", unlimited: true, expiresAt: null });
-	assert.deepEqual(account.alert, { level: "normal", metric: "remaining-percent", value: 100 });
-	console.log("New API unlimited quota behavior remains intact ok");
+	assert.deepEqual(account.balance, { remaining: 2, used: 1, total: 3, currency: "USD", unlimited: false, expiresAt: null });
+	assert.deepEqual(account.alert, { level: "normal", metric: "remaining-percent", value: 66.7 });
+	console.log("New API unlimited token never masks finite account balance ok");
 }
 
 {
@@ -466,10 +468,50 @@ console.log("IPv4/IPv6 private-address classification ok");
 		now: () => now,
 		fetch: async (url) => String(url).endsWith("/api/status")
 			? jsonResponse({ data: { quota_per_unit: 500000 } })
-			: jsonResponse({ code: true, data: { total_granted: 1, total_used: 0, total_available: 1, expires_at: 0 } })
+			: jsonResponse({ code: true, data: { user_quota: { total_available: 1, total_used: 0 }, expires_at: 0 } })
 	});
 	assert.equal(account.balance.expiresAt, null, "expires_at=0 means no expiry, not the Unix epoch");
 	console.log("New API zero expiry normalization ok");
+}
+
+{
+	const spec = resolveAccountSpec(relay, validateAccountConfig({ monitors: {
+		"relay-a": { adapter: "new-api", fallbackCredentialRef: "MANAGEMENT_PAT" }
+	} }));
+	for (const userQuota of [void 0, null, {}, [], false, { total_used: 1 }, { total_available: null }, { total_available: "" }, { total_available: "invalid" }]) {
+		const calls = [];
+		const account = await queryAccount(spec, credentials({ RELAY_A_KEY: "sk-relay", MANAGEMENT_PAT: "management-secret" }), {
+			now: () => now,
+			fetch: async (url) => {
+				calls.push(String(url));
+				return jsonResponse({ code: true, data: { user_quota: userQuota, total_available: 999999, total_used: 123, unlimited_quota: true } });
+			}
+		});
+		assert.equal(account.status, "ok", "missing account quota is not an upstream failure");
+		assert.equal(account.balance, null, "missing or invalid account quota must not fall back to token balance");
+		assert.deepEqual(account.alert, { level: "unknown", metric: "balance", value: null });
+		assert.deepEqual(calls, ["https://relay.example.com/api/usage/token/"], "no status or management request without account quota");
+	}
+	for (const userQuota of [{ total_available: 0 }, { total_available: "0", total_used: "500000" }, { total_available: -500000, total_used: "invalid" }]) {
+		const account = await queryAccount(spec, credentials({ RELAY_A_KEY: "sk-relay" }), {
+			now: () => now,
+			fetch: async (url) => String(url).endsWith("/api/status")
+				? jsonResponse({ data: { quota_per_unit: 500000, quota_display_type: "USD" } })
+				: jsonResponse({ code: true, data: { user_quota: userQuota, unlimited_quota: true, expires_at: 1 } })
+		});
+		assert.equal(account.status, "ok");
+		assert.equal(account.balance.remaining, Number(userQuota.total_available) / 500000);
+		assert.equal(account.balance.unlimited, false);
+		assert.equal(account.balance.expiresAt, null);
+		if (userQuota.total_used === "500000") {
+			assert.equal(account.balance.used, 1);
+			assert.equal(account.balance.total, 1);
+		} else {
+			assert.equal(Object.hasOwn(account.balance, "used"), false);
+			assert.equal(Object.hasOwn(account.balance, "total"), false);
+		}
+	}
+	console.log("New API absent account quota hides balance; zero and negative account balances remain valid ok");
 }
 
 {
@@ -1218,7 +1260,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 		now: () => now,
 		fetch: async (url) => String(url).endsWith("/api/status")
 			? jsonResponse({}, 503)
-			: jsonResponse({ code: true, data: { total_granted: 10, total_used: 2, total_available: 8 } })
+			: jsonResponse({ code: true, data: { user_quota: { total_available: 8, total_used: 2 } } })
 	});
 	assert.equal(account.status, "unavailable", "status transport failures must not use the historical quota unit");
 	assert.equal(account.balance, null);
@@ -1437,7 +1479,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 		fetch: async (url) => {
 			if (String(url).endsWith("/api/v1/settings/public")) { fetched = true; throw new Error("explicit adapter must not be probed"); }
 			if (String(url).endsWith("/api/status")) return jsonResponse({ data: { quota_per_unit: 500000 } });
-			return jsonResponse({ code: true, data: { total_granted: 10, total_used: 2, total_available: 8 } });
+			return jsonResponse({ code: true, data: { user_quota: { total_available: 8, total_used: 2 } } });
 		},
 		sub2apiDetection: new Map()
 	});
@@ -1651,6 +1693,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 
 {
 	let calls = 0;
+	let quotaVisible = true;
 	const service = createAccountService({
 		credentials: credentials({ RELAY_A_KEY: "sk-relay" }),
 		getProviders: async () => [relay],
@@ -1661,7 +1704,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 			fetch: async (url) => {
 				calls += 1;
 				if (String(url).endsWith("/api/status")) return jsonResponse({ data: { quota_per_unit: 1 } });
-				return jsonResponse({ code: true, data: { total_granted: 10, total_used: 2, total_available: 8 } });
+				return jsonResponse({ code: true, data: { user_quota: quotaVisible ? { total_available: 8, total_used: 2 } : void 0, total_available: 999 } });
 			}
 		}
 	});
@@ -1672,7 +1715,13 @@ console.log("IPv4/IPv6 private-address classification ok");
 	assert.equal(calls, 2, "fresh cache must avoid another upstream request");
 	await service.refreshAll();
 	assert.equal(calls, 4, "background refresh must force an upstream update");
-	console.log("account cache and background refresh contract ok");
+	quotaVisible = false;
+	const hidden = await service.get("relay-a", { force: true });
+	assert.equal(hidden.status, "ok");
+	assert.equal(hidden.balance, null, "revoking user quota access must clear cached account amounts");
+	assert.equal(hidden.stale, false);
+	assert.equal((await service.get("relay-a")).balance, null);
+	console.log("account cache, background refresh and revoked account quota visibility ok");
 }
 
 {
@@ -1790,7 +1839,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 				if (phase === "transient") return jsonResponse({}, 503);
 				if (phase === "rate-limited") return jsonResponse({}, 429);
 				if (phase === "auth") return jsonResponse({}, 401);
-				return jsonResponse({ code: true, data: { total_granted: 10, total_used: 2, total_available: 8 } });
+				return jsonResponse({ code: true, data: { user_quota: { total_available: 8, total_used: 2 } } });
 			}
 		}
 	});
