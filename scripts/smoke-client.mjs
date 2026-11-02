@@ -77,9 +77,7 @@ if (!source.includes('translate("panel.badge")')) throw new Error("badge must ke
 if (!source.includes("badgeAmountText !== null &&")) throw new Error("badge amount must be a separate middle element");
 if (!source.includes("S.badgeAmount")) throw new Error("badge amount element is missing its class");
 if (!source.includes("badgeCount !== null && react_jsx_runtime.jsx(\"span\", { className: S.badgeCount")) throw new Error("badge must keep the today token count on the right");
-if (source.includes("data-orcarouter-integration") || source.includes("OrcaRouterIntegrationCard")) throw new Error("OrcaRouter must stay a compact provider choice, not a standalone panel card");
 for (const forbidden of [
-	"conversation.input",
 	"CurrentSessionInline",
 	"CurrentSessionPill",
 	"data-current-session-inline",
@@ -197,14 +195,12 @@ window.getComputedStyle = originalGetComputedStyle;
 console.log("shared footer action row/wrap policy ok");
 
 const {
-	ORCAROUTER_ADD_SENTINEL,
 	SELECTED_PROVIDER_STORAGE_KEY,
 	authoritativeProviderList,
 	readSelectedProvider,
 	reconcileSelectedProvider,
 	writeSelectedProvider
 } = exports_;
-assert.equal(ORCAROUTER_ADD_SENTINEL, "__add_orcarouter__");
 assert.equal(SELECTED_PROVIDER_STORAGE_KEY, "@ychris12138/dsh-usage-stats:selected-provider:v1");
 assert.equal(authoritativeProviderList({ ok: false, providers: [] }), null, "a transient provider error must not become an authoritative empty list");
 assert.equal(authoritativeProviderList(null), null);
@@ -223,12 +219,6 @@ writeSelectedProvider("removed-provider", localStorage);
 assert.equal(reconcileSelectedProvider("removed-provider", providerChoicesForStorage, localStorage), "deepseek-account", "a removed provider must prefer the signed-in DeepSeek Account route");
 assert.equal(readSelectedProvider(localStorage), null, "a removed provider must be cleared from storage");
 writeSelectedProvider("deepseek-official", localStorage);
-const sentinelWriteStart = storedWrites.length;
-writeSelectedProvider(ORCAROUTER_ADD_SENTINEL, localStorage);
-assert.equal(readSelectedProvider(localStorage), "deepseek-official", "the synthetic action must not replace or clear the persisted provider");
-assert.equal(storedWrites.slice(sentinelWriteStart).some(([, value]) => value === ORCAROUTER_ADD_SENTINEL), false, "the synthetic action sentinel must never reach localStorage");
-storedValues.set(SELECTED_PROVIDER_STORAGE_KEY, ORCAROUTER_ADD_SENTINEL);
-assert.equal(readSelectedProvider(localStorage), null, "a legacy/corrupt synthetic sentinel must be removed when read");
 writeSelectedProvider("bad\0provider", localStorage);
 assert.equal(readSelectedProvider(localStorage), null, "malformed provider ids must not be persisted");
 const deniedStorage = { getItem: () => { throw new Error("denied"); }, setItem: () => { throw new Error("denied"); }, removeItem: () => { throw new Error("denied"); } };
@@ -293,17 +283,33 @@ const ctx = {
 };
 exports_.apply(ctx);
 assert.deepEqual(optionalFollowDependencies, [["sessions", "modelDirectories"]], "only optional follow dependencies may be requested");
-if (registrations.length !== 1) throw new Error(`expected only the sidebar slot injection, got ${registrations.length}`);
+const slots = registrations.map(([name]) => name);
+assert.equal(slots.filter((slot) => slot === "sidebar.footer.action").length, 1);
+assert.equal(slots.filter((slot) => slot === "conversation.input.right").length, 1);
+assert.equal(slots.filter((slot) => slot === "settings.models.provider-card").length, 4);
 const registrationBySlot = new Map(registrations);
 if (!registrationBySlot.has("sidebar.footer.action")) throw new Error("sidebar footer slot registration missing");
-for (const registerFn of registrationBySlot.values()) {
+for (const [, registerFn] of registrations) {
 	const disposer = registerFn();
 	if (typeof disposer !== "function") throw new Error("slot registration must return a disposer");
 }
 const sidebarEntry = registeredEntries.find((entry) => entry.options.name === "sidebar.footer.action");
-if (sidebarEntry?.options.id !== "usage-stats" || typeof sidebarEntry.component !== "function") throw new Error("sidebar action must remain the sole client entry");
-console.log("apply ok, sidebar-only slot:", [...registrationBySlot.keys()].join(", "));
+if (sidebarEntry?.options.id !== "usage-stats" || typeof sidebarEntry.component !== "function") throw new Error("sidebar action missing");
+const composerEntry = registeredEntries.find((entry) => entry.options.name === "conversation.input.right");
+assert.equal(composerEntry?.options.id, "usage-stats-model-quota");
+assert.equal(typeof composerEntry.component, "function");
+assert.deepEqual(registeredEntries.filter((entry) => entry.options.name === "settings.models.provider-card").map((entry) => entry.options.key).sort(),
+	["llm-deepseek", "llm-deepseek-account", "llm-deepseek-api-key", "llm-pi-ai"]);
+console.log("apply ok, sidebar action, composer quota and provider configuration slots");
 
+// Provider card settings are keyed to the route, not inferred from the card's vendor label.
+const extrasMarkup = renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
+	{ provider: { provider: "zai", settingsNs: "llm-pi-ai" }, configured: true }));
+assert.match(extrasMarkup, /data-provider-monitor-settings="zai"/);
+assert.match(extrasMarkup, /new-api/);
+assert.match(extrasMarkup, /window:monthly/);
+assert.ok(renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
+	{ provider: { provider: "unconfigured" }, configured: false })).length === 0);
 // Render the month heatmap with synthetic per-day data (calendar grid + colors).
 const { MonthHeatmap, DayDetail, buildMonthHeatmap } = exports_;
 const dayMap = new Map();
@@ -412,40 +418,9 @@ console.log("provider/model ranking totals, routes, sorting and range changes ok
 
 // Balance and subscription providers share one account-card frame. Only the
 // selected provider is rendered; the inner payload varies by account mode.
-const { ProviderAccountCard, buildProviderChoices, buildProviderPickerChoices, providerChoiceLabel } = exports_;
-if (typeof providerChoiceLabel !== "function") throw new Error("provider choice presentation helper is missing");
-if (typeof buildProviderPickerChoices !== "function") throw new Error("synthetic provider choice policy must be testable");
-assert.equal(
-	providerChoiceLabel({ id: "orcarouter", displayName: "OrcaRouter" }, (key) => key === "orcarouter.choiceSuffix" ? "（赞助集成）" : key),
-	"OrcaRouter（赞助集成）",
-	"OrcaRouter sponsorship must stay a compact parenthetical selector label"
-);
-assert.equal(providerChoiceLabel({ id: "deepseek-official", displayName: "DeepSeek" }, () => "（赞助集成）"), "DeepSeek", "other provider labels must remain unchanged");
-const freshProviderChoices = buildProviderPickerChoices(
-	buildProviderChoices([{ id: "deepseek-official", displayName: "DeepSeek", configured: true }]),
-	{ available: true, installed: false }
-);
-assert.equal(freshProviderChoices.at(-1)?.id, ORCAROUTER_ADD_SENTINEL, "a fresh writable install must append the synthetic OrcaRouter action");
-assert.equal(
-	providerChoiceLabel(freshProviderChoices.at(-1), (key) => key === "orcarouter.choiceSuffix" ? "（赞助集成）" : key),
-	"OrcaRouter（赞助集成）"
-);
-const installedProviderChoices = buildProviderPickerChoices(buildProviderChoices([
-	{ id: "deepseek-official", displayName: "DeepSeek", configured: true },
-	{ id: "orcarouter", displayName: "OrcaRouter", configured: true }
-]), { available: true, installed: false });
-assert.equal(installedProviderChoices.filter((provider) => provider.id === "orcarouter").length, 1, "a real OrcaRouter provider must not gain a synthetic duplicate");
-assert.equal(installedProviderChoices.some((provider) => provider.id === ORCAROUTER_ADD_SENTINEL), false);
-assert.equal(
-	buildProviderPickerChoices(buildProviderChoices([{ id: "deepseek-official" }]), { available: false, installed: false }).some((provider) => provider.id === ORCAROUTER_ADD_SENTINEL),
-	false,
-	"an unavailable settings seam must not expose an unusable action"
-);
-assert.equal(
-	buildProviderPickerChoices(buildProviderChoices([{ id: "deepseek-official" }]), { available: true }).some((provider) => provider.id === ORCAROUTER_ADD_SENTINEL),
-	false,
-	"an incomplete integration status must fail closed"
-);
+const { ProviderAccountCard, buildProviderChoices, providerChoiceLabel } = exports_;
+assert.equal(providerChoiceLabel({ id: "deepseek-official", displayName: "DeepSeek" }), "DeepSeek");
+assert.equal(buildProviderChoices([{ id: "test", displayName: "Test" }])[0].accountMode, "balance");
 const translateAccount = (key, params) => {
 	if (params?.value !== void 0) return `${key}:${params.value}`;
 	if (params?.refs !== void 0) return `${key}:${params.refs}`;
@@ -701,6 +676,10 @@ const goAccount = {
 	]
 };
 assert.deepEqual(badgeAccountValue(goAccount), { kind: "percent", period: "monthly", value: 98, display: "98%" });
+assert.deepEqual(badgeAccountValue(goAccount, "window:session"), { kind: "percent", period: "session", value: 90, display: "90%" });
+assert.deepEqual(badgeAccountValue(goAccount, "window:monthly"), { kind: "percent", period: "monthly", value: 98, display: "98%" });
+assert.equal(badgeAccountValue(goAccount, "window:daily"), null, "an unavailable selected window must not silently display another");
+assert.equal(badgeAccountValue(goAccount, "balance"), null, "subscription without wallet does not fabricate balance");
 assert.equal(badgeAccountValue({ ...goAccount, id: "custom-go-route", windows: [...goAccount.windows].reverse() }).value, 98);
 assert.equal(badgeAccountValue({ ...goAccount, adapter: undefined }).value, 98, "legacy canonical snapshots retain monthly semantics");
 assert.equal(badgeAccountValue({ ...goAccount, adapter: "declarative" }).value, 90, "an explicit custom adapter owns its summary");
@@ -803,10 +782,9 @@ document.addEventListener = () => {};
 document.removeEventListener = () => {};
 window.setInterval = () => 1;
 window.clearInterval = () => {};
-const providerFixture = (includeOrcaRouter = false) => [
+const providerFixture = () => [
 	{ id: "deepseek-official", displayName: "DeepSeek", configured: true, accountMode: "balance" },
-	{ id: "opencode-go", displayName: "OpenCode Go", configured: true, accountMode: "subscription" },
-	...(includeOrcaRouter ? [{ id: "orcarouter", displayName: "OrcaRouter", configured: true, accountMode: "balance", adapter: null }] : [])
+	{ id: "opencode-go", displayName: "OpenCode Go", configured: true, accountMode: "subscription" }
 ];
 const usageFixture = {
 	ok: true,
@@ -821,7 +799,7 @@ const accountFixtureFor = (path) => {
 	const providerId = new URL(String(path), "http://local.test").searchParams.get("provider") ?? "deepseek-official";
 	return providerId === "opencode-go"
 		? { ...goAccount, displayName: "OpenCode Go", alert: { level: "normal" } }
-		: { id: providerId, displayName: providerId === "orcarouter" ? "OrcaRouter" : "DeepSeek", mode: "balance", status: providerId === "orcarouter" ? "unsupported" : "ok", balance: providerId === "orcarouter" ? null : { remaining: 5, currency: "USD" } };
+		: { id: providerId, displayName: "DeepSeek", mode: "balance", status: "ok", balance: { remaining: 5, currency: "USD" } };
 };
 const responseFixture = (payload, { ok = true, status = 200 } = {}) => ({ ok, status, json: async () => payload });
 const flushPanelEffects = async () => {
@@ -830,14 +808,12 @@ const flushPanelEffects = async () => {
 globalThis.fetch = async (path, options = {}) => {
 	const request = { path: String(path), method: options.method ?? "GET", headers: options.headers ?? {}, body: options.body };
 	integrationRequests.push(request);
-	if (request.path.includes("/integrations/orcarouter")) return responseFixture({ ok: true, integration: { available: true, installed: true } });
-	if (request.path.includes("/providers")) return responseFixture({ ok: true, providers: providerFixture(true) });
+	if (request.path.includes("/providers")) return responseFixture({ ok: true, providers: providerFixture() });
 	if (request.path.includes("/account")) return responseFixture({ ok: true, account: accountFixtureFor(request.path) });
 	return responseFixture(usageFixture);
 };
 let integrationRenderer;
-const panelTranslate = (key) => key === "orcarouter.choiceSuffix" ? "（赞助集成）"
-	: key === "panel.monthlyRemaining" ? "Month left {value}" : key;
+const panelTranslate = (key) => key === "panel.monthlyRemaining" ? "Month left {value}" : key;
 writeSelectedProvider("opencode-go", localStorage);
 await act(async () => {
 	integrationRenderer = TestRenderer.create(react.createElement(UsageStatsPanel, { wide: true, t: panelTranslate }));
@@ -851,8 +827,6 @@ if (integrationRenderer.root.findAllByProps({ "data-usage-stats-panel": true }).
 const goBadge = integrationRenderer.root.findByProps({ "data-usage-stats-badge": true });
 assert.match(goBadge.props["aria-label"], /Month left 98%/, "the mounted sidebar must identify the monthly percentage");
 assert.ok(integrationRenderer.root.findAll((node) => typeof node.props.className === "string" && node.props.className.includes("usg_badgeAmount")).some((node) => node.props.children === "Month left 98%"), "the visible badge must match the monthly window");
-assert.equal(integrationRequests.filter((request) => request.path.includes("/integrations/orcarouter") && request.method === "GET").length, 1, "opening the panel must read the secret-free OrcaRouter integration status once");
-assert.equal(integrationRequests.some((request) => request.path.includes("/integrations/orcarouter") && request.method === "POST"), false, "opening the panel must never mutate OrcaRouter settings");
 const exportLinks = integrationRenderer.root.findAll((node) => typeof node.props?.["data-export-format"] === "string");
 assert.deepEqual(exportLinks.map((node) => node.props["data-export-format"]), ["daily-csv", "sessions-csv", "json"], "the panel must expose all three secret-free downloads without a new fetch loop");
 for (const link of exportLinks) if (link.type !== "a" || typeof link.props.download !== "string" || link.props.className !== "usg_exportLink") throw new Error("exports must be styled browser downloads");
@@ -866,10 +840,6 @@ assert.equal(integrationRequests.length,requestCountBeforeRange,"ranking scope m
 assert.equal(storedWrites.length,writesBeforeRange,"ranking scope must not overwrite the manual provider preference");
 const selectedPicker = integrationRenderer.root.findByProps({ "aria-label": "account.provider" });
 if (selectedPicker.props.value !== "opencode-go") throw new Error(`sidebar panel must restore its persisted provider, got ${selectedPicker.props.value}`);
-const providerOptionLabels = selectedPicker.props.children.map((option) => option.props.children);
-if (!providerOptionLabels.includes("OrcaRouter（赞助集成）")) throw new Error(`provider picker must expose the compact OrcaRouter sponsorship label, got ${JSON.stringify(providerOptionLabels)}`);
-assert.equal(selectedPicker.props.children.filter((option) => option.props.value === "orcarouter").length, 1, "an installed OrcaRouter must appear exactly once as a real provider");
-assert.equal(selectedPicker.props.children.some((option) => option.props.value === ORCAROUTER_ADD_SENTINEL), false, "an installed OrcaRouter must not retain the synthetic action");
 if (!integrationRequests.some((request) => request.path.includes("/account?provider=opencode-go&activity=detail"))) throw new Error("the open detail panel must signal its provider to the central scheduler");
 const closeAction = integrationRenderer.root.findByProps({ "aria-label": "action.close" });
 await act(async () => {
@@ -889,96 +859,7 @@ if (integrationRenderer.root.findAllByProps({ "data-budget-period": "daily" }).l
 }
 await act(async () => { integrationRenderer.unmount(); });
 
-// Fresh install: the synthetic selector action is the only sponsored setup UI.
-// It performs one guarded POST, reloads the real provider list, and only then
-// persists/selects the real route id.
-writeSelectedProvider("deepseek-official", localStorage);
-const freshStorageStart = storedWrites.length;
-const freshRequests = [];
-let freshInstalled = false;
-globalThis.fetch = async (path, options = {}) => {
-	const request = { path: String(path), method: options.method ?? "GET", headers: options.headers ?? {}, body: options.body };
-	freshRequests.push(request);
-	if (request.path.includes("/integrations/orcarouter")) {
-		if (request.method === "POST") {
-			freshInstalled = true;
-			return responseFixture({ ok: true, integration: { available: true, installed: true, added: true } });
-		}
-		return responseFixture({ ok: true, integration: { available: true, installed: freshInstalled } });
-	}
-	if (request.path.includes("/providers")) return responseFixture({ ok: true, providers: providerFixture(freshInstalled) });
-	if (request.path.includes("/account")) return responseFixture({ ok: true, account: accountFixtureFor(request.path) });
-	return responseFixture(usageFixture);
-};
-let freshRenderer;
-await act(async () => {
-	freshRenderer = TestRenderer.create(react.createElement(UsageStatsPanel, { wide: true, t: panelTranslate }));
-	await Promise.resolve();
-});
-await act(async () => {
-	freshRenderer.root.findByProps({ "data-usage-stats-badge": true }).props.onClick();
-	await flushPanelEffects();
-});
-let freshPicker = freshRenderer.root.findByProps({ "aria-label": "account.provider" });
-assert.equal(freshPicker.props.children.at(-1).props.value, ORCAROUTER_ADD_SENTINEL, "fresh install must append the synthetic OrcaRouter option");
-assert.equal(freshPicker.props.children.at(-1).props.children, "OrcaRouter（赞助集成）");
-await act(async () => {
-	const first = freshPicker.props.onChange({ target: { value: ORCAROUTER_ADD_SENTINEL } });
-	const duplicate = freshPicker.props.onChange({ target: { value: ORCAROUTER_ADD_SENTINEL } });
-	await Promise.all([first, duplicate]);
-	await flushPanelEffects();
-});
-const freshPosts = freshRequests.filter((request) => request.path.includes("/integrations/orcarouter") && request.method === "POST");
-assert.equal(freshPosts.length, 1, "one synthetic selection must perform exactly one guarded mutation even if the event is repeated while pending");
-assert.equal(freshPosts[0].headers["content-type"], "application/json");
-assert.equal(freshPosts[0].headers["x-dsh-usage-stats-action"], "add-orcarouter");
-assert.equal(freshPosts[0].body, "{}");
-freshPicker = freshRenderer.root.findByProps({ "aria-label": "account.provider" });
-assert.equal(freshPicker.props.value, "orcarouter", "a successful action must select the reloaded real OrcaRouter provider");
-assert.equal(freshPicker.props.children.some((option) => option.props.value === ORCAROUTER_ADD_SENTINEL), false, "the synthetic action must disappear after installation");
-assert.equal(freshPicker.props.children.filter((option) => option.props.value === "orcarouter").length, 1);
-assert.equal(readSelectedProvider(localStorage), "orcarouter");
-assert.equal(storedWrites.slice(freshStorageStart).some(([, value]) => value === ORCAROUTER_ADD_SENTINEL), false, "the sentinel must never be persisted during the success transition");
-await act(async () => { freshRenderer.unmount(); });
-
-// Failed explicit mutation: the controlled picker and persistence stay on the
-// previous real provider, while a small inline status explains the failure.
-writeSelectedProvider("opencode-go", localStorage);
-const failedStorageStart = storedWrites.length;
-const failedRequests = [];
-globalThis.fetch = async (path, options = {}) => {
-	const request = { path: String(path), method: options.method ?? "GET", headers: options.headers ?? {}, body: options.body };
-	failedRequests.push(request);
-	if (request.path.includes("/integrations/orcarouter")) {
-		if (request.method === "POST") return responseFixture({ ok: false, error: "settings-update-rejected" }, { ok: false, status: 422 });
-		return responseFixture({ ok: true, integration: { available: true, installed: false } });
-	}
-	if (request.path.includes("/providers")) return responseFixture({ ok: true, providers: providerFixture(false) });
-	if (request.path.includes("/account")) return responseFixture({ ok: true, account: accountFixtureFor(request.path) });
-	return responseFixture(usageFixture);
-};
-let failedRenderer;
-await act(async () => {
-	failedRenderer = TestRenderer.create(react.createElement(UsageStatsPanel, { wide: true, t: panelTranslate }));
-	await Promise.resolve();
-});
-await act(async () => {
-	failedRenderer.root.findByProps({ "data-usage-stats-badge": true }).props.onClick();
-	await flushPanelEffects();
-});
-const failedPicker = failedRenderer.root.findByProps({ "aria-label": "account.provider" });
-assert.equal(failedPicker.props.value, "opencode-go");
-await act(async () => {
-	await failedPicker.props.onChange({ target: { value: ORCAROUTER_ADD_SENTINEL } });
-	await flushPanelEffects();
-});
-assert.equal(failedRequests.filter((request) => request.path.includes("/integrations/orcarouter") && request.method === "POST").length, 1);
-assert.equal(failedRenderer.root.findByProps({ "aria-label": "account.provider" }).props.value, "opencode-go", "a rejected mutation must preserve the current provider");
-assert.equal(readSelectedProvider(localStorage), "opencode-go", "a rejected mutation must preserve the persisted provider");
-assert.equal(storedWrites.slice(failedStorageStart).some(([, value]) => value === ORCAROUTER_ADD_SENTINEL), false);
-assert.equal(failedRenderer.root.findAllByProps({ "data-orcarouter-action-error": true }).length, 1, "a rejected mutation must expose one lightweight inline error");
-await act(async () => { failedRenderer.unmount(); });
 globalThis.fetch = originalFetch;
 
-console.log("sidebar-only panel, persistence, and OrcaRouter setup policy ok");
+console.log("sidebar panel, persistence, and provider selection policy ok");
 console.log("SMOKE TEST PASSED");

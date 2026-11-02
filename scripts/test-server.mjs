@@ -300,101 +300,68 @@ async function testDeepSeekDesktopAccountServiceLifecycle(root) {
 	}
 }
 
-async function testOrcaRouterIntegrationRoute(root) {
-	const plugin = await freshModule("orcarouter-integration", join(root, "orcarouter-integration"));
+async function testProviderOptionsRoute(root) {
+	const path = join(root, "provider-options");
+	const plugin = await freshModule("provider-options", path);
 	const routes = new Map();
-	let revision = 3;
-	let providers = { company: { displayName: "Company", baseURL: "https://relay.invalid/v1" } };
-	let writes = 0;
-	const settings = {
-		describe: (options) => {
-			assert.equal(options?.redactSecrets, true);
-			return [{ ns: "llm-pi-ai", revision, value: { providers: structuredClone(providers) } }];
-		},
-		mutate: async (ns, ops, expectedRevision) => {
-			writes += 1;
-			assert.equal(ns, "llm-pi-ai");
-			assert.equal(expectedRevision, revision);
-			assert.deepEqual(ops[0].path, ["providers", "orcarouter"]);
-			assert.deepEqual(Object.keys(ops[0].value).sort(), ["api", "apiKeyEnv", "baseURL", "displayName", "models"]);
-			providers = { ...providers, orcarouter: structuredClone(ops[0].value) };
-			revision += 1;
-		}
-	};
 	const accounts = {
 		validate: async () => {},
-		providerViews: async () => [],
-		get: async () => null,
+		providerViews: async () => [{ id: "zai", adapter: "zai-token-plan", configured: true }],
+		get: async (id) => ({ id, status: "ok", mode: "subscription", windows: [] }),
 		subscriptionAccounts: async () => []
 	};
 	await plugin.apply(makeContext({
 		sessions: { list: () => [] },
 		persistence: { listSnapshots: async () => [], list: async () => [] },
 		routes,
-		settings
+		settings: { get: () => void 0 }
 	}), {}, { disableBackgroundRefresh: true, accounts });
-	const handler = routes.get(plugin.ORCAROUTER_INTEGRATION_PATH);
-	assert.equal(typeof handler, "function");
+	const endpoint = routes.get(plugin.PROVIDER_OPTIONS_PATH);
+	assert.equal(typeof endpoint, "function");
+	const request = (method, body, { remoteAddress = "127.0.0.1", action = "save-provider-options" } = {}) => ({
+		method, url: plugin.PROVIDER_OPTIONS_PATH + "?provider=zai",
+		headers: { host: "localhost:3080", "content-type": "application/json", "x-dsh-usage-stats-action": action },
+		socket: { remoteAddress },
+		async *[Symbol.asyncIterator]() { if (body !== undefined) yield Buffer.from(JSON.stringify(body)); }
+	});
+	const before = makeResponse();
+	await endpoint(request("GET"), before);
+	assert.equal(before.status, 200);
+	assert.deepEqual(JSON.parse(before.body).option, {
+		adapter: null, displayMetric: "auto", usageBaseURL: null, credentialRef: null
+	});
+	const forbidden = makeResponse();
+	await endpoint(request("POST", { providerId: "zai", option: { adapter: "new-api" } }, {
+		remoteAddress: "198.51.100.12"
+	}), forbidden);
+	assert.equal(forbidden.status, 403);
 
-	const status = makeResponse();
-	await handler({
-		method: "GET",
-		headers: { host: "localhost:3080" },
-		socket: { remoteAddress: "127.0.0.1" }
-	}, status);
-	assert.equal(status.status, 200);
-	assert.deepEqual(JSON.parse(status.body), { ok: true, integration: { available: true, installed: false } });
-	assert.doesNotMatch(status.body, /ORCAROUTER_API_KEY|baseURL|company|relay\.invalid/i, "the status wire must not expose settings or credential references");
+	const invalid = makeResponse();
+	await endpoint(request("POST", {
+		providerId: "zai", option: { adapter: "new-api", usageBaseURL: "http://127.0.0.1" }
+	}), invalid);
+	assert.equal(invalid.status, 400);
 
-	const missingActionHeader = makeResponse();
-	await handler({
-		method: "POST",
-		headers: { host: "localhost:3080", "content-type": "application/json" },
-		socket: { remoteAddress: "127.0.0.1" }
-	}, missingActionHeader);
-	assert.equal(missingActionHeader.status, 403, "the write endpoint must require a non-simple same-origin action header");
-	assert.equal(writes, 0);
-
-	const foreign = makeResponse();
-	await handler({
-		method: "POST",
-		headers: {
-			host: "localhost:3080",
-			"content-type": "application/json",
-			"x-dsh-usage-stats-action": "add-orcarouter"
-		},
-		socket: { remoteAddress: "203.0.113.8" }
-	}, foreign);
-	assert.equal(foreign.status, 403);
-	assert.equal(writes, 0);
-
-	const add = makeResponse();
-	await handler({
-		method: "POST",
-		headers: {
-			host: "localhost:3080",
-			"content-type": "application/json; charset=utf-8",
-			"x-dsh-usage-stats-action": "add-orcarouter"
-		},
-		socket: { remoteAddress: "::1" }
-	}, add);
-	assert.equal(add.status, 200);
-	assert.deepEqual(JSON.parse(add.body), { ok: true, integration: { available: true, installed: true, added: true } });
-	assert.deepEqual(providers.company, { displayName: "Company", baseURL: "https://relay.invalid/v1" }, "the exact path mutation must preserve unrelated providers");
-	assert.equal(writes, 1);
-
-	const repeated = makeResponse();
-	await handler({
-		method: "POST",
-		headers: {
-			host: "localhost:3080",
-			"content-type": "application/json",
-			"x-dsh-usage-stats-action": "add-orcarouter"
-		},
-		socket: { remoteAddress: "127.0.0.1" }
-	}, repeated);
-	assert.deepEqual(JSON.parse(repeated.body), { ok: true, integration: { available: true, installed: true, added: false } });
-	assert.equal(writes, 1, "the HTTP action must also be idempotent");
+	const saved = makeResponse();
+	await endpoint(request("POST", {
+		providerId: "zai",
+		option: {
+			adapter: "new-api", displayMetric: "window:monthly",
+			credentialRef: "ZAI_NEWAPI_TOKEN", usageBaseURL: "https://relay.example"
+		}
+	}), saved);
+	assert.equal(saved.status, 200);
+	const stored = JSON.parse(await readFile(join(path, "storages", "usage-stats-provider-options.json"), "utf8"));
+	assert.equal(stored.zai.adapter, "new-api");
+	assert.equal(stored.zai.displayMetric, "window:monthly");
+	assert.equal(stored.zai.credentialRef, "ZAI_NEWAPI_TOKEN");
+	const after = makeResponse();
+	await endpoint(request("GET"), after);
+	assert.equal(after.status, 200);
+	assert.equal(JSON.parse(after.body).option.adapter, "new-api");
+	const account = makeResponse();
+	await routes.get(plugin.ACCOUNT_PATH)(request("GET"), account);
+	assert.equal(JSON.parse(account.body).displayMetric, "window:monthly");
 }
 
 async function testSessionContext(root) {
@@ -863,7 +830,7 @@ async function testExportRoutes(root) {
 		}
 	});
 	await plugin.apply(context, {}, { disableBackgroundRefresh: true });
-	assert.equal(routes.size, 10, "the plugin must register six data views, three exports, and the explicit OrcaRouter settings action");
+	assert.equal(routes.size, 10, "the plugin must register nine read-only routes and a guarded provider-options route");
 
 	const request = (path) => ({ method: "GET", url: path, headers: { host: "localhost:3080" }, socket: { remoteAddress: "127.0.0.1" } });
 	const daily = makeResponse();
@@ -1770,13 +1737,12 @@ async function testConfiguredProvidersIncludeRegisteredRoutes(root) {
 			{ id: "deepseek-official", name: "DeepSeek" },
 			{ id: "tokenrhythm", name: "TokenRhythm" },
 			{ id: "scnet", name: "SCNet" },
-			{ id: "orcarouter", name: "OrcaRouter" },
 			{ id: "openrouter1", name: "OpenRouter" },
 			{ id: "", name: "broken" }
 		]
 	};
 	const providers = await plugin.configuredProviders(makeContext({ settings, llm }));
-	assert.deepEqual(providers.map((provider) => provider.id), ["deepseek-official", "tokenrhythm", "scnet", "orcarouter", "openrouter1"], "registered routes join the settings-derived ones without duplicates");
+	assert.deepEqual(providers.map((provider) => provider.id), ["deepseek-official", "tokenrhythm", "scnet", "openrouter1"], "registered routes join the settings-derived ones without duplicates");
 	const tokenrhythm = providers.find((provider) => provider.id === "tokenrhythm");
 	assert.equal(tokenrhythm.displayName, "Token Rhythm", "a settings profile wins over the registry display name");
 	assert.equal(tokenrhythm.apiKeyEnv, "TOKENRHYTHM_API_KEY", "the settings profile keeps the credential reference");
@@ -2174,7 +2140,7 @@ try {
 	await testRouteFence(root);
 	await testDeepSeekDesktopAccountRoute(root);
 	await testDeepSeekDesktopAccountServiceLifecycle(root);
-	await testOrcaRouterIntegrationRoute(root);
+	await testProviderOptionsRoute(root);
 	await testSessionContext(root);
 	await testModernLiveSessionAPI(root);
 	await testLegacyLiveSessionAPI(root);
