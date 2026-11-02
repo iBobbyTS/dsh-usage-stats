@@ -701,6 +701,19 @@ assert.deepEqual(sessionRows.map((session) => session.sessionId), ["new", "old"]
 assert.equal(sessionRows[0].estimatedCost, 0, "a complete zero-cost session remains a valid priced session");
 assert.equal(buildSessionCostRows(sessionRows, 1).length, 1, "session cost list limit must be respected");
 assert.equal(buildSessionCostRows(sessionRows, 0).length, 0);
+const providerSessionRows = [
+	{ ...sessionRows[0], sessionId: "relay", providers: ["relay"], models: ["relay/shared-model"] },
+	{ ...sessionRows[1], sessionId: "official", providers: ["deepseek"], models: ["deepseek/shared-model"] },
+	{ ...sessionRows[1], sessionId: "mixed", providers: ["deepseek", "relay"], models: ["deepseek/shared-model", "relay/shared-model"] },
+	{ ...sessionRows[0], sessionId: "missing-provider", models: ["deepseek/shared-model"] },
+	{ ...sessionRows[0], sessionId: "similar-provider", providers: ["deepseek-relay"], models: ["deepseek-relay/shared-model"] }
+];
+assert.deepEqual(buildSessionCostRows(providerSessionRows, 20, "deepseek").map((row) => row.sessionId), ["official", "mixed"], "filter must use exact provider membership, not model name or prefix");
+assert.deepEqual(buildSessionCostRows(providerSessionRows, 1, "deepseek").map((row) => row.sessionId), ["official"], "provider filtering must precede the row limit");
+assert.deepEqual(buildSessionCostRows(providerSessionRows, 20, "relay").map((row) => row.sessionId), ["relay", "mixed"], "switching provider must change the matching sessions");
+assert.equal(buildSessionCostRows(providerSessionRows, 20, "unknown-provider").length, 0);
+assert.equal(buildSessionCostRows(providerSessionRows).length, providerSessionRows.length, "no selection preserves the global list");
+assert.ok(source.includes("buildSessionCostRows(usage?.sessions, 20, accountProvider), [usage, accountProvider]"), "session list must react to manual and followed account provider changes");
 const sessionTranslate = (key, params) => {
 	if (key === "sessionCost.meta") return `${params.tokens} tokens · ${params.models}`;
 	if (key === "sessionCost.tokensOnly") return `${params.tokens} tokens`;
