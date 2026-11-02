@@ -300,6 +300,70 @@ async function testDeepSeekDesktopAccountServiceLifecycle(root) {
 	}
 }
 
+async function testProviderOptionsRoute(root) {
+	const path = join(root, "provider-options");
+	const plugin = await freshModule("provider-options", path);
+	const routes = new Map();
+	const accounts = {
+		validate: async () => {},
+		providerViews: async () => [{ id: "zai", adapter: "zai-token-plan", configured: true }],
+		get: async (id) => ({ id, status: "ok", mode: "subscription", windows: [] }),
+		subscriptionAccounts: async () => []
+	};
+	await plugin.apply(makeContext({
+		sessions: { list: () => [] },
+		persistence: { listSnapshots: async () => [], list: async () => [] },
+		routes,
+		settings: { get: () => void 0 }
+	}), {}, { disableBackgroundRefresh: true, accounts });
+	const endpoint = routes.get(plugin.PROVIDER_OPTIONS_PATH);
+	assert.equal(typeof endpoint, "function");
+	const request = (method, body, { remoteAddress = "127.0.0.1", action = "save-provider-options" } = {}) => ({
+		method, url: plugin.PROVIDER_OPTIONS_PATH + "?provider=zai",
+		headers: { host: "localhost:3080", "content-type": "application/json", "x-dsh-usage-stats-action": action },
+		socket: { remoteAddress },
+		async *[Symbol.asyncIterator]() { if (body !== undefined) yield Buffer.from(JSON.stringify(body)); }
+	});
+	const before = makeResponse();
+	await endpoint(request("GET"), before);
+	assert.equal(before.status, 200);
+	assert.deepEqual(JSON.parse(before.body).option, {
+		adapter: null, displayMetric: "auto", usageBaseURL: null, credentialRef: null
+	});
+	const forbidden = makeResponse();
+	await endpoint(request("POST", { providerId: "zai", option: { adapter: "new-api" } }, {
+		remoteAddress: "198.51.100.12"
+	}), forbidden);
+	assert.equal(forbidden.status, 403);
+
+	const invalid = makeResponse();
+	await endpoint(request("POST", {
+		providerId: "zai", option: { adapter: "new-api", usageBaseURL: "http://127.0.0.1" }
+	}), invalid);
+	assert.equal(invalid.status, 400);
+
+	const saved = makeResponse();
+	await endpoint(request("POST", {
+		providerId: "zai",
+		option: {
+			adapter: "new-api", displayMetric: "window:monthly",
+			credentialRef: "ZAI_NEWAPI_TOKEN", usageBaseURL: "https://relay.example"
+		}
+	}), saved);
+	assert.equal(saved.status, 200);
+	const stored = JSON.parse(await readFile(join(path, "storages", "usage-stats-provider-options.json"), "utf8"));
+	assert.equal(stored.zai.adapter, "new-api");
+	assert.equal(stored.zai.displayMetric, "window:monthly");
+	assert.equal(stored.zai.credentialRef, "ZAI_NEWAPI_TOKEN");
+	const after = makeResponse();
+	await endpoint(request("GET"), after);
+	assert.equal(after.status, 200);
+	assert.equal(JSON.parse(after.body).option.adapter, "new-api");
+	const account = makeResponse();
+	await routes.get(plugin.ACCOUNT_PATH)(request("GET"), account);
+	assert.equal(JSON.parse(account.body).displayMetric, "window:monthly");
+}
+
 async function testSessionContext(root) {
 	const plugin = await freshModule("session-context", join(root, "session-context"));
 	const routes = new Map();
@@ -2076,6 +2140,7 @@ try {
 	await testRouteFence(root);
 	await testDeepSeekDesktopAccountRoute(root);
 	await testDeepSeekDesktopAccountServiceLifecycle(root);
+	await testProviderOptionsRoute(root);
 	await testSessionContext(root);
 	await testModernLiveSessionAPI(root);
 	await testLegacyLiveSessionAPI(root);
