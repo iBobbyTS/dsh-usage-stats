@@ -310,6 +310,25 @@ assert.match(extrasMarkup, /<option value="" selected=""><\/option>/, "an unset 
 assert.ok(source.includes('adapter: e.target.value === "" ? null : e.target.value'), "clearing the override must persist null rather than an empty adapter id");
 assert.ok(renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
 	{ provider: { provider: "unconfigured" }, configured: false })).length === 0);
+// Loaded account mode, not its model/vendor name, controls metric-selector visibility.
+{
+	const savedFetch = globalThis.fetch;
+	try {
+		for (const mode of ["balance", "subscription"]) {
+			globalThis.fetch = async (path) => ({ ok: true, json: async () => path.includes("provider-options")
+				? { ok: true, option: { adapter: null, displayMetric: "auto", usageBaseURL: null, credentialRef: null } }
+				: { ok: true, account: { id: "monitor-test", mode, windows: mode === "subscription" ? [{ kind: "monthly" }] : [] } } });
+			let settings;
+			await act(async () => { settings = TestRenderer.create(react.createElement(exports_.ProviderMonitorSettings,
+				{ provider: { provider: "monitor-test" }, configured: true })); });
+			await act(async () => { settings.root.findByType("details").props.onToggle({ currentTarget: { open: true } }); });
+			const labels = settings.root.findAllByType("label").map((node) => node.findByType("span").props.children);
+			assert.equal(labels.includes("Show before model"), mode !== "balance", "only balance accounts hide the metric selector");
+			assert.ok(labels.includes("Upstream provider protocol override"), "other settings must remain visible");
+			await act(async () => { settings.unmount(); });
+		}
+	} finally { globalThis.fetch = savedFetch; }
+}
 // Render the month heatmap with synthetic per-day data (calendar grid + colors).
 const { MonthHeatmap, DayDetail, buildMonthHeatmap } = exports_;
 const dayMap = new Map();
