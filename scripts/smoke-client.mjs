@@ -304,6 +304,10 @@ const extrasMarkup = renderToStaticMarkup(react.createElement(exports_.ProviderM
 assert.match(extrasMarkup, /data-provider-monitor-settings="zai"/);
 assert.match(extrasMarkup, /new-api/);
 assert.match(extrasMarkup, /window:monthly/);
+assert.match(extrasMarkup, /Upstream provider protocol override/);
+assert.doesNotMatch(extrasMarkup, /Actual billing backend|实际服务类型/);
+assert.match(extrasMarkup, /<option value="" selected=""><\/option>/, "an unset protocol override must select the blank option by default");
+assert.ok(source.includes('adapter: e.target.value === "" ? null : e.target.value'), "clearing the override must persist null rather than an empty adapter id");
 assert.ok(renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
 	{ provider: { provider: "unconfigured" }, configured: false })).length === 0);
 // Render the month heatmap with synthetic per-day data (calendar grid + colors).
