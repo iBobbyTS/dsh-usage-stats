@@ -14,9 +14,21 @@ Provider balances, subscription quotas, and token-usage analytics for the DeepSe
 
 > 展示图使用脱敏演示数据；插件不会把 API Key、Cookie、管理 PAT 或上游原始响应发送到浏览器。
 
-[![Powered by OrcaRouter](https://img.shields.io/badge/Powered_by-OrcaRouter-2563eb)](https://www.orcarouter.ai/ref/ref_13c34663d1527ac16963)
 
-> 🐋 OrcaRouter sponsors this project and is available as an optional OpenAI-compatible provider. [Learn more](https://www.orcarouter.ai/ref/ref_13c34663d1527ac16963) · Referral link.
+
+### Provider monitoring in the model picker (fork)
+
+This fork adds a compact quota/balance readout **immediately to the left of the DSH model selector** through the native \`conversation.input.right\` slot. The value follows the current session's selected *route*, not the model vendor. The readout uses the existing server-side account cache and never exposes API tokens.
+
+In **Settings → Models**, each configured Provider card contains a **Balance / quota monitoring** section. Choose the *actual backend* (Automatic, NewAPI, Sub2API, OpenCode Go, Z.ai, etc.), select the displayed metric (Balance, 5-hour/Session, Daily, Weekly, Monthly, Total quota, MCP), optionally override the HTTPS usage API Base URL, and optionally reference a credential name already configured in DSH. Save changes separately from the model editor. A route called \`zai\` that actually uses NewAPI should explicitly select **NewAPI**. Unsupported or unavailable selected windows show a neutral dash rather than fabricated values.
+
+Options are persisted under \`$DSH_HOME/storages/usage-stats-provider-options.json\`, distinct from inference-provider configuration. Only adapter names, selected metrics, endpoint URLs, and credential **reference names** are saved; token values never enter the file. Host-only requests use \`GET /api/usage-stats/provider-options?provider=<id>\` and a loopback-only, action-header protected \`POST /api/usage-stats/provider-options\`. A Host restart is required after installing/upgrading the plugin; saving provider options within an already-running Host takes effect immediately.
+
+The Models extension uses DSH's keyed \`settings.models.provider-card\` slot. It is attached to Provider cards, not injected into the native model editor's internal field list; this avoids overriding DSH's own form. The setting applies per route, so several routes sharing \`llm-pi-ai\` can select different backends.
+
+OrcaRouter integration, automatic preset installation, sponsorship UI, and its built-in balance adapter have been removed.
+
+
 
 ## 一眼看懂 / At a glance
 
@@ -28,7 +40,7 @@ Provider balances, subscription quotas, and token-usage analytics for the DeepSe
 | 🔄 | 后台监测 | 账户按 active/detail/background 自适应刷新；间隔可配置或完全关闭，本地 Token 聚合保持独立运行 |
 | 🧩 | 可扩展适配器 | 支持 New API、Sub2API、通用余额模板，以及声明式 JSON Pointer 自定义查询 |
 | 📦 | 安全导出 | 提供 daily/session CSV 与版本化 JSON；Unicode、CSV 公式前缀和不完整费用均安全处理 |
-| 🔒 | 本机安全边界 | 数据端点仅接受回环 GET；OrcaRouter preset 仅由带防跨站请求头的显式回环 POST 写入；凭据只在服务端解析 |
+| 🔒 | 本机安全边界 | 数据端点仅接受回环 GET；Provider 额度配置由带防跨站请求头的显式回环 POST 写入；凭据只在服务端解析 |
 
 界面支持中文和英文。浏览器只请求当前选择的 provider；账户自动刷新由服务端统一调度。手动刷新会更新用量、供应商列表，并强制刷新当前账户，不会批量强制请求其他供应商。
 
@@ -110,7 +122,6 @@ npx --yes github:Ychris12138/dsh-usage-stats --no-enable
 | DeepSeek API Key | 余额 | provider `apiKeyEnv` | `/user/balance` |
 | DeepSeek Account（DSH 0.2 Desktop） | 余额 | DSH Host-owned account grant；插件不读取 token/cookie | `deepseekAccount.getState()` + `getBalance()` |
 | OpenRouter | 余额 | `OPENROUTER_MANAGEMENT_KEY` | `/api/v1/credits` |
-| OrcaRouter | 余额 | `ORCAROUTER_API_KEY` | `/v1/balance`（旧部署回退到账单摘要接口） |
 | Moonshot / Kimi API | 余额 | provider `apiKeyEnv` | `/v1/users/me/balance` |
 | OpenCode Go | 订阅 | `OPENCODE_API_KEY`，兼容旧 `OPENCODE_GO_API_KEY` | `/inference/go/v1/usage`（兼容旧 `/zen/go/v1/usage`） |
 | Z.ai / 智谱 | 订阅 | 全球区 `ZAI_API_KEY`；中国区 `ZAI_CODING_CN_API_KEY` | Coding Plan quota/subscription |
@@ -259,7 +270,7 @@ OPENROUTER_MANAGEMENT_KEY: sk-or-v1-your-management-key
 
 插件按 `total_credits - total_usage` 显示 OpenRouter 余额，并同时展示累计已用和总 credits。普通 Key 的 `/api/v1/key` 只描述单个 Key 的 spending limit，不会被当作账户余额。自定义引用可在 `monitors.openrouter` 中设置 `adapter: openrouter-balance` 与 `credentialRef`。
 
-OrcaRouter 优先读取其余额接口 `/v1/balance`，将 paid、free 和 promo credits 汇总为当前可用余额；旧部署没有该接口时，回退到官方文档提供的 OpenAI-compatible 账单摘要接口（订阅端点总额度 + usage 端点累计用量，按美分换算）。任一可用路径返回无法识别的数据时会显示明确的错误状态，不会把未知结果当作 0；无限额度哨兵值会显示为 `∞`，OrcaRouter 路由仍不参与本插件的模型价格估算。
+
 
 ### Token Plan 供应商
 
@@ -444,7 +455,7 @@ Passion（provider id 为 `passion` 或域名为 `*.passionapi.com`）会自动�
 
 </details>
 
-支持的 adapter：`deepseek-balance`、`deepseek-account`、`openrouter-balance`、`moonshot-balance`、`zai-balance`、`orcarouter-balance`、`opencode-go`、`commandcode-goat`、`zai-token-plan`、`kimi-token-plan`、`minimax-token-plan`、`ollama`、`ark-coding-plan-cli`、`codearts-credits`、`new-api`、`sub2api`、`sub2api-auth`、`general`、`declarative`。
+支持的 adapter：`deepseek-balance`、`deepseek-account`、`openrouter-balance`、`moonshot-balance`、`zai-balance`、`opencode-go`、`commandcode-goat`、`zai-token-plan`、`kimi-token-plan`、`minimax-token-plan`、`ollama`、`ark-coding-plan-cli`、`codearts-credits`、`new-api`、`sub2api`、`sub2api-auth`、`general`、`declarative`。
 
 `warning.warnBelow` 与 `warning.criticalBelow` 是余额绝对值阈值。具有总额度的余额和 Token Plan 会自动产生 `normal / warning / critical` 剩余比例状态（默认 30% / 10%）。
 
@@ -525,7 +536,7 @@ npx --yes github:Ychris12138/dsh-usage-stats --check
 - 自定义 monitor 默认要求 HTTPS、同源相对路径、手动 redirect 和 JSON 响应，body 上限为 1 MiB。
 - 发凭据前会筛选域名的 IPv4/IPv6 解析结果并固定一个允许的连接地址，优先使用公网地址；HTTPS 域名解析到 `198.18.0.0/15` 时可作为 Clash/Mihomo 等代理的 synthetic fake-IP 使用。字面量 `198.18/15`、其他私网/特殊地址仍默认拒绝，防止 DNS rebinding 绕过私网限制。
 - `usageBaseURL` 禁止内嵌 username/password；`Authorization`、`X-API-Key`、`API-Key` 等 header 必须由 credential ref 注入。
-- 九个数据端点仅接受 GET；OrcaRouter 集成路由的 GET 只返回布尔状态，POST 仅在用户点击后执行局部 settings mutation，并要求非简单自定义 action header。所有路由同时校验 peer socket 与 Host，支持 IPv4、IPv4-mapped IPv6 和 `[::1]:port`。
+- 九个数据端点仅接受 GET；Provider 监控配置接口的 GET 仅读取非敏感设置，POST 仅在用户点击保存后执行写入，并要求非简单自定义 action header。所有路由同时校验 peer socket 与 Host，支持 IPv4、IPv4-mapped IPv6 和 `[::1]:port`。
 - 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 只保存聚合 Token、会话 id、不透明 revision 与折叠游标，不保存提示词、回复或文件路径。
 
 本机反向代理会让插件看到代理自身的回环地址。请勿把端点经反向代理暴露到局域网或公网；确需代理时必须在代理层增加可靠认证与访问控制。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
@@ -562,10 +573,8 @@ Token 统计值来自 `assistant/chunk`、`assistant/message` 或 `compaction/su
 | `GET` | `/api/usage-stats/export/daily.csv` | secret-free daily provider/model CSV |
 | `GET` | `/api/usage-stats/export/sessions.csv` | secret-free session CSV |
 | `GET` | `/api/usage-stats/export.json` | versioned usage、budget、pricing provenance 与 account-safe JSON |
-| `GET` | `/api/usage-stats/integrations/orcarouter` | 仅返回 OrcaRouter preset 是否可写/已存在的 secret-free 布尔状态 |
-| `POST` | `/api/usage-stats/integrations/orcarouter` | 用户明确请求后，以 revision-guarded path mutation 幂等加入 preset；要求 `application/json` 与 `X-DSH-Usage-Stats-Action: add-orcarouter` |
 
-除上述 OrcaRouter POST 外，非 GET 返回 `405`；非回环请求返回 `403`。API JSON 使用 `Cache-Control: no-cache`；下载响应使用 `Cache-Control: no-store` 与固定文件名。
+除上述 Provider 监控配置 POST 外，非 GET 返回 `405`；非回环请求返回 `403`。API JSON 使用 `Cache-Control: no-cache`；下载响应使用 `Cache-Control: no-store` 与固定文件名。
 
 ## 开发与验证 / Development
 
