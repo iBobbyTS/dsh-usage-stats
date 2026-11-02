@@ -289,7 +289,7 @@ assert.equal(slots.filter((slot) => slot === "conversation.input.right").length,
 assert.equal(slots.filter((slot) => slot === "settings.models.provider-card").length, 4);
 const registrationBySlot = new Map(registrations);
 if (!registrationBySlot.has("sidebar.footer.action")) throw new Error("sidebar footer slot registration missing");
-for (const registerFn of registrationBySlot.values()) {
+for (const [, registerFn] of registrations) {
 	const disposer = registerFn();
 	if (typeof disposer !== "function") throw new Error("slot registration must return a disposer");
 }
