@@ -13,7 +13,7 @@ assert.deepEqual(defaults, { adapter: null, displayMetric: "auto", usageBaseURL:
 for (const id of ["__proto__", "constructor", "bad/provider", "../escape", ""]) {
 	assert.throws(() => validateProviderOptionId(id), /invalid provider/);
 }
-assert.throws(() => validateProviderOption({ adapter: "orcarouter-balance" }), /unsupported/);
+assert.throws(() => validateProviderOption({ adapter: "removed-legacy-adapter" }), /unsupported/);
 assert.throws(() => validateProviderOption({ adapter: "new-api", usageBaseURL: "http://localhost:1234" }), /HTTPS/);
 assert.throws(() => validateProviderOption({ adapter: "new-api", usageBaseURL: "https://user:pass@relay.example/v1" }), /HTTPS/);
 assert.throws(() => validateProviderOption({ adapter: "new-api", credentialRef: "sk-actual-secret" }), /credential reference/);

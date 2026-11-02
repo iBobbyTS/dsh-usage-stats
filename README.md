@@ -26,7 +26,7 @@ Options are persisted under \`$DSH_HOME/storages/usage-stats-provider-options.js
 
 The Models extension uses DSH's keyed \`settings.models.provider-card\` slot. It is attached to Provider cards, not injected into the native model editor's internal field list; this avoids overriding DSH's own form. The setting applies per route, so several routes sharing \`llm-pi-ai\` can select different backends.
 
-OrcaRouter integration, automatic preset installation, sponsorship UI, and its built-in balance adapter have been removed.
+The promotional provider integration, auto-install preset, and the associated wallet adapter are no longer part of this fork.
 
 
 
