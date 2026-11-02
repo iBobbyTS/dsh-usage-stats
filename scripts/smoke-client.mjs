@@ -676,6 +676,10 @@ const goAccount = {
 	]
 };
 assert.deepEqual(badgeAccountValue(goAccount), { kind: "percent", period: "monthly", value: 98, display: "98%" });
+assert.deepEqual(badgeAccountValue(goAccount, "window:session"), { kind: "percent", period: "session", value: 90, display: "90%" });
+assert.deepEqual(badgeAccountValue(goAccount, "window:monthly"), { kind: "percent", period: "monthly", value: 98, display: "98%" });
+assert.equal(badgeAccountValue(goAccount, "window:daily"), null, "an unavailable selected window must not silently display another");
+assert.equal(badgeAccountValue(goAccount, "balance"), null, "subscription without wallet does not fabricate balance");
 assert.equal(badgeAccountValue({ ...goAccount, id: "custom-go-route", windows: [...goAccount.windows].reverse() }).value, 98);
 assert.equal(badgeAccountValue({ ...goAccount, adapter: undefined }).value, 98, "legacy canonical snapshots retain monthly semantics");
 assert.equal(badgeAccountValue({ ...goAccount, adapter: "declarative" }).value, 90, "an explicit custom adapter owns its summary");
