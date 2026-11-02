@@ -283,7 +283,10 @@ const ctx = {
 };
 exports_.apply(ctx);
 assert.deepEqual(optionalFollowDependencies, [["sessions", "modelDirectories"]], "only optional follow dependencies may be requested");
-if (registrations.length !== 1) throw new Error(`expected only the sidebar slot injection, got ${registrations.length}`);
+const slots = registrations.map(([name]) => name);
+assert.equal(slots.filter((slot) => slot === "sidebar.footer.action").length, 1);
+assert.equal(slots.filter((slot) => slot === "conversation.input.right").length, 1);
+assert.equal(slots.filter((slot) => slot === "settings.models.provider-card").length, 4);
 const registrationBySlot = new Map(registrations);
 if (!registrationBySlot.has("sidebar.footer.action")) throw new Error("sidebar footer slot registration missing");
 for (const registerFn of registrationBySlot.values()) {
@@ -291,9 +294,22 @@ for (const registerFn of registrationBySlot.values()) {
 	if (typeof disposer !== "function") throw new Error("slot registration must return a disposer");
 }
 const sidebarEntry = registeredEntries.find((entry) => entry.options.name === "sidebar.footer.action");
-if (sidebarEntry?.options.id !== "usage-stats" || typeof sidebarEntry.component !== "function") throw new Error("sidebar action must remain the sole client entry");
-console.log("apply ok, sidebar-only slot:", [...registrationBySlot.keys()].join(", "));
+if (sidebarEntry?.options.id !== "usage-stats" || typeof sidebarEntry.component !== "function") throw new Error("sidebar action missing");
+const composerEntry = registeredEntries.find((entry) => entry.options.name === "conversation.input.right");
+assert.equal(composerEntry?.options.id, "usage-stats-model-quota");
+assert.equal(typeof composerEntry.component, "function");
+assert.deepEqual(registeredEntries.filter((entry) => entry.options.name === "settings.models.provider-card").map((entry) => entry.options.key).sort(),
+	["llm-deepseek", "llm-deepseek-account", "llm-deepseek-api-key", "llm-pi-ai"]);
+console.log("apply ok, sidebar action, composer quota and provider configuration slots");
 
+// Provider card settings are keyed to the route, not inferred from the card's vendor label.
+const extrasMarkup = renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
+	{ provider: { provider: "zai", settingsNs: "llm-pi-ai" }, configured: true }));
+assert.match(extrasMarkup, /data-provider-monitor-settings="zai"/);
+assert.match(extrasMarkup, /new-api/);
+assert.match(extrasMarkup, /window:monthly/);
+assert.ok(renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSettings,
+	{ provider: { provider: "unconfigured" }, configured: false })).length === 0);
 // Render the month heatmap with synthetic per-day data (calendar grid + colors).
 const { MonthHeatmap, DayDetail, buildMonthHeatmap } = exports_;
 const dayMap = new Map();
