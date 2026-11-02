@@ -70,13 +70,9 @@ if (!/host\.style\.flexWrap\s*=\s*["']wrap["']/.test(source)) throw new Error("c
 if (!source.includes('document.addEventListener("pointerdown"')) throw new Error("open panel must listen for outside pointerdown");
 if (!source.includes('event.key === "Escape"')) throw new Error("open panel must dismiss on Escape");
 if (!source.includes("ref: panelRef")) throw new Error("portaled panel must expose a ref for outside-click detection");
-// Badge layout regression: the collapsed badge must keep the 「用量/余额」label,
-// render the account value as a separate middle element, and keep today's token
-// count on the right — the label must never be replaced by the amount.
+// Sidebar entry stays label-only; amounts remain in the model readout and cards.
 if (!source.includes('translate("panel.badge")')) throw new Error("badge must keep the label text");
-if (!source.includes("badgeAmountText !== null &&")) throw new Error("badge amount must be a separate middle element");
-if (!source.includes("S.badgeAmount")) throw new Error("badge amount element is missing its class");
-if (!source.includes("badgeCount !== null && react_jsx_runtime.jsx(\"span\", { className: S.badgeCount")) throw new Error("badge must keep the today token count on the right");
+if (source.includes("badgeAmountText") || source.includes("const badgeCount =")) throw new Error("sidebar must not derive monetary or token badge text");
 for (const forbidden of [
 	"CurrentSessionInline",
 	"CurrentSessionPill",
@@ -904,8 +900,12 @@ await act(async () => {
 });
 if (integrationRenderer.root.findAllByProps({ "data-usage-stats-panel": true }).length !== 1) throw new Error("sidebar badge click must open the existing account panel");
 const goBadge = integrationRenderer.root.findByProps({ "data-usage-stats-badge": true });
-assert.match(goBadge.props["aria-label"], /Month left 98%/, "the mounted sidebar must identify the monthly percentage");
-assert.ok(integrationRenderer.root.findAll((node) => typeof node.props.className === "string" && node.props.className.includes("usg_badgeAmount")).some((node) => node.props.children === "Month left 98%"), "the visible badge must match the monthly window");
+assert.equal(goBadge.props["aria-label"], "panel.badge", "sidebar accessibility label must not include quota numbers");
+assert.equal(goBadge.findByProps({ className: "usg_badgeLabel" }).props.children, "panel.badge");
+for (const className of ["usg_badgeAmount", "usg_badgeCount"]) {
+	assert.equal(goBadge.findAllByProps({ className }).length, 0, "sidebar must hide account and token numbers even after data loads");
+}
+assert.equal(integrationRenderer.root.findAllByType(exports_.QuotaHoverCard).length, 1, "label-only sidebar retains quota hover");
 const exportLinks = integrationRenderer.root.findAll((node) => typeof node.props?.["data-export-format"] === "string");
 assert.deepEqual(exportLinks.map((node) => node.props["data-export-format"]), ["daily-csv", "sessions-csv", "json"], "the panel must expose all three secret-free downloads without a new fetch loop");
 for (const link of exportLinks) if (link.type !== "a" || typeof link.props.download !== "string" || link.props.className !== "usg_exportLink") throw new Error("exports must be styled browser downloads");
