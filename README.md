@@ -10,6 +10,8 @@
 
 Provider balances, subscription quotas, and token-usage analytics for the DeepSeek Harness Web GUI (`dsh web`).
 
+新增可选 Host 额度来源注册协议：供应商插件自行管理授权与刷新，Usage Stats 只消费脱敏窗口。支持 ChatGPT 插件独立提供 Codex primary/secondary 额度，不读取其凭据。详见 [额度服务协议与联调](docs/quota-service-contract.md)。
+
 ![dsh-usage-stats interface preview](docs/images/usage-panel.svg)
 
 > 展示图使用脱敏演示数据；插件不会把 API Key、Cookie、管理 PAT 或上游原始响应发送到浏览器。
