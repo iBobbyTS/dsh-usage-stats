@@ -79,3 +79,11 @@ node scripts/test-quota-integration.mjs /absolute/path/to/dsh-plugin-chatgpt
 ```
 
 该测试运行真实 Cordis、ChatGPT 生产注册路径与 Usage Stats 消费者，仅替换供应商网络为合成响应，不读取真实账号。它不等同于已安装 profile 的 UI 验收或真实账号对账。
+
+Codex 卡片自动保存的真实 React 合成验收（需要两个仓库已安装其声明的开发依赖）：
+
+```sh
+node scripts/test-autosave-integration.mjs /absolute/path/to/dsh-plugin-chatgpt
+```
+
+覆盖初始化不授权、600ms 防抖、授权即时写入、请求顺序、失败重试、查询前保存、停止时取消待写入以及组件卸载提交。不会读取真实授权文件或访问供应商。组件卸载提交是尽力执行；关闭/刷新整个浏览器前应等待自动保存成功。

@@ -306,10 +306,10 @@ assert.match(extrasMarkup, /class="usg_providerExtrasStatus" role="status"/);
 const extrasRule = (name) => source.match(new RegExp(`\\.${name}\\{([^}]+)\\}`))?.[1] ?? "";
 assert.match(extrasRule("usg_providerExtrasActions"), /margin-top:12px/, "actions need spacing below the form grid");
 assert.match(extrasRule("usg_providerExtrasActions"), /flex-wrap:wrap/, "narrow action rows must wrap");
-assert.match(extrasRule("usg_providerExtrasStatus"), /overflow-wrap:anywhere/, "long adapter identifiers must not push the save button out");
-assert.match(extrasRule("usg_providerExtrasSave"), /flex:0 0 auto/, "save button must not shrink");
-assert.match(extrasRule("usg_providerExtrasSave"), /color:var\(--dsw-alias-label-primary-foreground,var\(--dsw-alias-bg-base\)\)/, "save text must use a theme-aware contrasting foreground");
-assert.doesNotMatch(extrasRule("usg_providerExtrasSave"), /#fff|--dsw-alias-fill-primary/);
+assert.match(extrasRule("usg_providerExtrasStatus"), /overflow-wrap:anywhere/, "long adapter identifiers must wrap");
+assert.equal(extrasRule("usg_providerExtrasSave"), "", "manual save styling must be removed");
+assert.doesNotMatch(extrasMarkup, /<button[^>]*>Save<\/button>/);
+assert.match(extrasMarkup, /Settings save automatically/);
 assert.match(extrasRule("usg_providerExtrasControl"), /background:var\(--dsw-alias-bg-layer-2\)/);
 assert.match(extrasMarkup, /new-api/);
 assert.match(extrasMarkup, /window:monthly/);
@@ -337,6 +337,75 @@ assert.ok(renderToStaticMarkup(react.createElement(exports_.ProviderMonitorSetti
 			await act(async () => { settings.unmount(); });
 		}
 	} finally { globalThis.fetch = savedFetch; }
+}
+// Real React autosave: initialization, immediate selects, text/blur, ordering,
+// editable in-flight drafts, rejected-write retry, reset and unmount flush.
+{
+	const originalFetch = globalThis.fetch, originalDispatch = window.dispatchEvent, originalEvent = globalThis.CustomEvent;
+	const posts = [], events = [];
+	let stored = { adapter: "new-api", displayMetric: "auto", usageBaseURL: null, credentialRef: null };
+	let gate = null, rejectNext = false, settings;
+	window.dispatchEvent = event => { events.push(event); };
+	globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init.detail; } };
+	globalThis.fetch = async (path, init) => {
+		if (init?.method === "POST") {
+			const body = JSON.parse(init.body); posts.push(body);
+			if (gate) { const wait = gate; gate = null; await wait; }
+			if (rejectNext) { rejectNext = false; return { ok: true, json: async () => ({ ok: false }) }; }
+			stored = body.option;
+			return { ok: true, json: async () => ({ ok: true, option: stored }) };
+		}
+		return { ok: true, json: async () => path.includes("provider-options")
+			? { ok: true, option: stored }
+			: { ok: true, account: { id: "autosave-test", mode: "subscription", windows: [] } } };
+	};
+	const input = index => settings.root.findAllByType("input")[index];
+	const select = index => settings.root.findAllByType("select")[index];
+	const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+	try {
+		await act(async () => { settings = TestRenderer.create(react.createElement(exports_.ProviderMonitorSettings,
+			{ provider: { provider: "autosave-test" }, configured: true })); });
+		await act(async () => { settings.root.findByType("details").props.onToggle({ currentTarget: { open: true } }); });
+		assert.equal(posts.length, 0, "loading must not save defaults");
+		assert.equal(settings.root.findAllByType("button").length, 0);
+		await act(async () => { select(1).props.onChange({ target: { value: "window:monthly" } }); });
+		assert.equal(posts.length, 1, "select saves immediately");
+		await act(async () => {
+			input(0).props.onChange({ target: { value: "https://one.example" } });
+			input(0).props.onChange({ target: { value: "https://latest.example" } });
+		});
+		assert.equal(posts.length, 1, "text is debounced");
+		await act(async () => { input(0).props.onBlur(); });
+		assert.equal(posts.at(-1).option.usageBaseURL, "https://latest.example");
+		let release;
+		gate = new Promise(resolve => { release = resolve; });
+		await act(async () => { select(1).props.onChange({ target: { value: "balance" } }); });
+		const count = posts.length;
+		assert.equal(input(1).props.disabled, false, "saving must not disable editing");
+		await act(async () => { input(1).props.onChange({ target: { value: "LATEST_KEY" } }); input(1).props.onBlur(); });
+		assert.equal(posts.length, count, "writes must not overlap");
+		await act(async () => { release(); await settle(); });
+		assert.equal(posts.at(-1).option.credentialRef, "LATEST_KEY");
+		assert.equal(input(1).props.value, "LATEST_KEY", "old response must not overwrite new draft");
+		rejectNext = true;
+		await act(async () => { input(1).props.onChange({ target: { value: "RETRY_KEY" } }); input(1).props.onBlur(); });
+		assert.equal(settings.root.findAllByProps({ role: "alert" }).length, 1);
+		assert.equal(input(1).props.value, "RETRY_KEY");
+		await act(async () => { input(1).props.onBlur(); });
+		assert.equal(settings.root.findAllByProps({ role: "alert" }).length, 0);
+		assert.equal(stored.credentialRef, "RETRY_KEY");
+		await act(async () => { select(0).props.onChange({ target: { value: "" } }); });
+		assert.deepEqual(stored, { adapter: null, displayMetric: "balance", usageBaseURL: null, credentialRef: null });
+		await act(async () => { select(0).props.onChange({ target: { value: "new-api" } }); });
+		await act(async () => { input(1).props.onChange({ target: { value: "ON_LEAVE" } }); });
+		await act(async () => { settings.unmount(); await settle(); });
+		assert.equal(stored.credentialRef, "ON_LEAVE");
+		assert.ok(events.every(event => event.detail.providerId === "autosave-test"));
+		console.log("provider settings autosave interaction regressions passed");
+	} finally {
+		if (settings) await act(async () => { settings.unmount(); });
+		globalThis.fetch = originalFetch; window.dispatchEvent = originalDispatch; globalThis.CustomEvent = originalEvent;
+	}
 }
 // Render the month heatmap with synthetic per-day data (calendar grid + colors).
 const { MonthHeatmap, DayDetail, buildMonthHeatmap } = exports_;
