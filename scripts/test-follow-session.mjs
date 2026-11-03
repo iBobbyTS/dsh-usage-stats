@@ -50,7 +50,7 @@ globalThis.fetch=async path=>{
  const url=new URL(String(path),'http://local.test');requests.push(url.pathname+url.search);
  let data;
  if(url.pathname.endsWith('/providers'))data={ok:true,providers:[a,b].map(id=>({id,displayName:'Z.ai',configured:true,accountMode:'subscription',adapter:'zai-token-plan'}))};
- else if(url.pathname.endsWith('/account')){const id=url.searchParams.get('provider');data={ok:true,account:{id,mode:'subscription',adapter:'zai-token-plan',status:'ok',windows:[{kind:'weekly',remainingPercent:id===a?20:80}]}};}
+ else if(url.pathname.endsWith('/account')){const id=url.searchParams.get('provider');data={ok:true,account:{id,mode:'subscription',adapter:'zai-token-plan',status:'ok',windows:[{kind:'weekly',remainingPercent:id===a?20:80,usedPercent:id===a?80:20}]}};}
  else if(url.pathname.includes('/integrations/'))data={ok:true,integration:{available:false}};
  else data={ok:true,days:[],total:{tokens:0},sessions:[]};
  return {ok:true,status:200,json:async()=>data};
@@ -97,4 +97,31 @@ await flush(()=>{renderer=Renderer.create(React.createElement(ex.UsageStatsPanel
 await flush(()=>renderer.root.findByProps({'data-usage-stats-badge':true}).props.onClick());
 assert.equal(follow().props.checked,false);await flush(()=>picker().props.onChange({target:{value:b}}));assert.equal(picker().props.value,b,'storage failure does not break current-page selection');
 await flush(()=>renderer.unmount());
-console.log('SESSION FOLLOW CONTROLLER + REACT INTEGRATION TESTS PASSED');
+// Exercise the actual composer readout, not just the standalone hover wrapper.
+window.addEventListener=()=>{};window.removeEventListener=()=>{};
+window.innerWidth=1280;window.innerHeight=900;
+const trigger={getBoundingClientRect:()=>({right:1000,top:812,bottom:840}),contains:()=>false};
+await flush(()=>setFollowServices(live));
+for(const providerId of ['zai-coding-cn','opencode-go']) {
+  await flush(()=>dir.store.set(selection(providerId)));
+  await flush(()=>{renderer=Renderer.create(React.createElement(ex.ModelQuotaReadout,{sessionId:'main',t:k=>k}),{createNodeMock:()=>trigger});});
+  const chip=renderer.root.findByProps({'data-provider-quota-chip':providerId});
+  assert.equal(chip.props.title,undefined,'quota card replaces the old native text tooltip');
+  assert.equal(chip.props.tabIndex,0,'quota is keyboard focusable');
+  const before=requests.length;
+  await flush(()=>renderer.root.findAll(node=>node.type==='div'&&node.props.className==='usg_composerQuotaHover')[0].props.onMouseEnter());
+  assert.equal(renderer.root.findAllByProps({'data-usage-stats-quota-preview':true}).length,1,'composer quota itself opens the card');
+  assert.equal(renderer.root.findAllByType(ex.ProviderAccountCard).length,1,'composer reuses the account card');
+  assert.equal(renderer.root.findAllByProps({role:'progressbar'}).length,1);
+  assert.equal(requests.length,before,'hover never adds an account request');
+  await flush(()=>renderer.unmount());
+}
+const subscriptionFetch=globalThis.fetch;
+globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({ok:true,account:{id:a,mode:'balance',status:'ok',balance:{remaining:10,currency:'CNY'}}})});
+await flush(()=>dir.store.set(selection(a)));
+await flush(()=>{renderer=Renderer.create(React.createElement(ex.ModelQuotaReadout,{sessionId:'main',t:k=>k}),{createNodeMock:()=>trigger});});
+await flush(()=>renderer.root.findAll(node=>node.type==='div'&&node.props.className==='usg_composerQuotaHover')[0].props.onMouseEnter());
+assert.equal(renderer.root.findAllByProps({'data-usage-stats-quota-preview':true}).length,0,'composer balances never gain quota hover');
+assert.match(renderer.root.findByProps({'data-provider-quota-chip':a}).props.title,/Balance:/,'balance text tooltip remains unchanged');
+await flush(()=>renderer.unmount());setFollowServices(null);globalThis.fetch=subscriptionFetch;
+console.log('SESSION FOLLOW CONTROLLER + COMPOSER QUOTA HOVER INTEGRATION TESTS PASSED');
