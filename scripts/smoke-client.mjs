@@ -572,7 +572,67 @@ const goMarkup = renderToStaticMarkup(react.createElement(ProviderAccountCard, {
 if (!deepseekMarkup.includes("usg_accountCard") || !goMarkup.includes("usg_accountCard")) throw new Error("both account modes must use the shared card frame");
 if (!deepseekMarkup.includes("data-account-mode=\"balance\"") || !deepseekMarkup.includes("DeepSeek") || deepseekMarkup.includes("progressbar")) throw new Error("DeepSeek must render only monetary balance data");
 if (!goMarkup.includes("data-account-mode=\"subscription\"") || !goMarkup.includes("OpenCode Go")) throw new Error("OpenCode Go must render the subscription account mode");
-if ((goMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !goMarkup.includes("width:12%")) throw new Error("OpenCode Go must render three quota meters");
+if ((goMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !goMarkup.includes("width:88%")) throw new Error("OpenCode Go must render three quota meters");
+// Cross-provider quota rows: canonical periods, remaining values and browser-local dates.
+{
+	const { quotaAccountSnapshot } = await import("../lib/quota.js");
+	const resetAt = Date.parse("2026-11-06T21:49:00Z"), now = resetAt - (2 * 1440 + 3 * 60 + 17) * 60000;
+	const snapshot = quotaAccountSnapshot({ id: "chatgpt", mode: "subscription" }, { observedAt: now, accounts: [{
+		id: "monitor", label: "Codex（独立监控账号）", status: "ok", windows: [
+			{ id: "primary", label: "5h", windowSeconds: 18000, usedPercent: 3, resetsAt: resetAt },
+			{ id: "secondary", label: "168h", windowSeconds: 604800, usedPercent: 52.64, resetsAt: resetAt },
+			{ id: "monthly", label: "720h", windowSeconds: 2592000, usedPercent: 0, resetsAt: resetAt }
+		] }] });
+	const translate = (key, params) => {
+		if (key === "subscription.resets") return params.time + "后重置";
+		if (key === "duration.daysHours") return params.days + "天" + params.hours + "小时";
+		if (key === "duration.hoursMinutes") return params.hours + "小时" + params.minutes + "分钟";
+		if (key === "duration.minutes") return params.minutes + "分钟";
+		return key;
+	};
+	const savedNow = Date.now, savedElement = document.documentElement;
+	document.documentElement = { lang: "zh-CN" };
+	Date.now = () => now;
+	const render = (account = snapshot) => TestRenderer.create(react.createElement(ProviderAccountCard, {
+		provider: { id: "chatgpt", displayName: "Codex" }, account, accountLoading: false, accountError: null, translate
+	}));
+	try {
+		for (const lang of ["zh-CN", "en-US"]) {
+			document.documentElement.lang = lang;
+			let renderer; act(() => { renderer = render(); });
+			assert.deepEqual(renderer.root.findAllByProps({ className: "usg_quotaLabel" }).map(node => node.props.children),
+				["subscription.window.session", "subscription.window.weekly", "subscription.window.monthly"]);
+			assert.deepEqual(renderer.root.findAllByProps({ className: "usg_quotaValue" }).map(node => node.props.children), ["97%", "47.4%", "100%"]);
+			assert.deepEqual(renderer.root.findAllByProps({ role: "progressbar" }).map(node => node.props["aria-valuenow"]), [97, 47.36, 100]);
+			const date = new Intl.DateTimeFormat(lang.startsWith("en") ? "en" : "zh", lang.startsWith("en")
+				? { dateStyle: "medium", timeStyle: "medium" }
+				: { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(resetAt));
+			assert.equal(renderer.root.findAllByType("time")[0].props.children, " · " + date);
+			const json = JSON.stringify(renderer.toJSON());
+			assert.equal(json.includes("独立监控账号"), false, "do not repeat the independent account label in each window");
+			assert.ok(json.includes("2天3小时后重置") && !json.includes("17分钟"), "countdown uses days+hours, never three units");
+			act(() => renderer.unmount());
+		}
+		for (const [window, expected] of [
+			[{ kind: "session", label: "5h", usedPercent: 10 }, "90%"],
+			[{ kind: "weekly", label: "周额度", usedPercent: 100 }, "0%"],
+			[{ kind: "monthly", label: "月额度", remainingPercent: 12.34 }, "12.3%"],
+			[{ kind: "quota", label: "总积分包", amount: 75 }, "75"],
+			[{ kind: "quota", label: "总积分包", amount: 12.345 }, "12.3"],
+			[{ kind: "quota", label: "总积分包", amount: 12.04 }, "12.0"],
+			[{ kind: "quota", label: "未知", resetsAt: "bad-date" }, "—"]
+		]) {
+			let renderer; act(() => { renderer = render({ ...snapshot, windows: [window] }); });
+			assert.equal(renderer.root.findByProps({ className: "usg_quotaValue" }).props.children, expected);
+			assert.equal(renderer.root.findAllByType("time").length, 0, "missing or invalid reset times have no date/separator");
+			assert.equal(renderer.root.findByProps({ className: "usg_quotaReset" }).children.length, 1);
+			if (window.kind === "quota") assert.equal(renderer.root.findByProps({ className: "usg_quotaLabel" }).props.children, window.label);
+			act(() => renderer.unmount());
+		}
+	} finally { Date.now = savedNow; document.documentElement = savedElement; }
+	console.log("canonical quota periods, remaining precision, compact countdown and localized reset dates ok");
+}
+
 // Hover reuses the real card and only exposes the current subscription windows.
 {
 	const saved = { docAdd: document.addEventListener, docRemove: document.removeEventListener,
@@ -680,10 +740,10 @@ if (!commandCodeMarkup.includes("data-account-mode=\"subscription\"") || !comman
 	throw new Error("Command Code must render the subscription card with its plan label");
 }
 if (!commandCodeMarkup.includes(usd(69.72))) throw new Error("Command Code must render the credit balance beside its windows");
-if ((commandCodeMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !commandCodeMarkup.includes("width:2%")) {
+if ((commandCodeMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !commandCodeMarkup.includes("width:98%")) {
 	throw new Error("Command Code must render 5-hour, weekly and monthly windows");
 }
-if (!commandCodeMarkup.includes("subscription.window.monthly") || !commandCodeMarkup.includes("width:0.3%")) {
+if (!commandCodeMarkup.includes("subscription.window.monthly") || !commandCodeMarkup.includes("width:99.7%")) {
 	throw new Error("the monthly credit pool must render as its own window");
 }
 // Credits without a readable window are a complete answer: the card may not
