@@ -659,8 +659,15 @@ if ((goMarkup.match(/role="progressbar"/g) ?? []).length !== 3 || !goMarkup.incl
 	assert.equal(previews().length, 0);
 	act(() => wrapper().props.onMouseEnter());
 	assert.equal(previews().length, 1);
+	assert.ok(previews()[0].props.className.includes("usg_quotaPreview"), "hover exposes a scoped surface for flat card styling");
+	assert.ok(source.includes(".usg_quotaPreview>.usg_accountCard,.usg_quotaPreview .usg_balanceCard{border:0;background:none;border-radius:0;padding:0}"), "only hover removes nested card surfaces, including plan credits");
 	assert.equal(renderer.root.findAllByType(ProviderAccountCard).length, 1, "hover must reuse the existing account card");
 	assert.equal(renderer.root.findAllByProps({ role: "progressbar" }).length, 3, "all quota windows must be visible");
+	const trackRule = source.match(/\.usg_quotaTrack\{([^}]+)\}/)?.[1] ?? "";
+	assert.ok(trackRule.includes("width:100%") && trackRule.includes("height:8px"), "quota tracks expose the full range with a thicker rail");
+	assert.ok(trackRule.includes("var(--dsw-alias-label-primary) 18%,var(--dsw-alias-bg-layer-2)"), "track contrast must adapt to theme instead of relying on the faint fill token");
+	assert.ok(trackRule.includes("box-shadow:inset"), "track outline remains visible when remaining quota is low");
+	assert.ok(source.includes(".usg_quotaFill{height:100%;background:var(--usg-providerAccent);border-radius:inherit;min-width:0;"), "an exhausted window must not paint a leftover accent sliver");
 	assert.equal(previews()[0].props.style.left, 428, "preview stays inside the right viewport edge");
 	assert.equal(previews()[0].props.style.bottom, 12, "preview aligns to the badge and stays above the bottom viewport edge");
 	act(() => wrapper().props.onMouseLeave({ relatedTarget: previewNode }));
