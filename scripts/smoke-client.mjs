@@ -742,7 +742,7 @@ const healthMarkup = renderToStaticMarkup(react.createElement(ProviderAccountCar
 		status: "rate-limited",
 		stale: true,
 		lastAttemptAt: Date.parse("2026-08-24T01:00:00Z"),
-		lastSuccessAt: Date.parse("2026-08-24T00:00:00Z"),
+		lastSuccessAt: Date.now() - 3600000,
 		ageMs: 3600000,
 		provenance: "official",
 		reason: "rate-limited",
@@ -753,10 +753,67 @@ const healthMarkup = renderToStaticMarkup(react.createElement(ProviderAccountCar
 	translate: translateAccount,
 	onRetry: () => {}
 }));
-for (const expected of ["account.status.stale", "account.health.lastAttempt", "account.health.lastSuccess", "account.health.age", "account.health.provenance", "account.provenance.official", "account.reason.rateLimited"]) {
+for (const expected of ["duration.hoursMinutes", "account.health.lastAttempt", "account.health.lastSuccess", "account.health.provenance", "account.provenance.official", "account.reason.rateLimited"]) {
 	if (!healthMarkup.includes(expected)) throw new Error(`account health detail is missing ${expected}`);
 }
 if (!healthMarkup.includes('data-account-stale="true"') || healthMarkup.includes("SECRET_API_KEY")) throw new Error("stale health metadata must be explicit and secret-free");
+
+// Freshness belongs in the shared header; hover omits provenance only.
+{
+	const provider = { id: "opencode-go", displayName: "OpenCode Go", accountMode: "subscription" };
+	const base = { ...goSubscription, mode: "subscription", provenance: "official",
+		lastAttemptAt: 1000000, lastSuccessAt: 900000 };
+	const translate = (key, params) => key + (params ? JSON.stringify(params) : "");
+	const props = { provider, accountLoading: false, accountError: null, translate, onRetry: () => {} };
+	const realNow = Date.now, fixedNow = Date.now();
+	Date.now = () => fixedNow;
+	for (const mode of ["subscription", "balance"]) for (const showSource of [true, false]) {
+		for (const [ageMs, label] of [
+			[0, "subscription.status.ok"], [299999, "subscription.status.ok"],
+			[300000, 'duration.minutes{&quot;minutes&quot;:5}'], [300001, 'duration.minutes{&quot;minutes&quot;:5}'],
+			[3600000, 'duration.hoursMinutes{&quot;hours&quot;:1,&quot;minutes&quot;:0}'],
+			[90000000, 'duration.daysHours{&quot;days&quot;:1,&quot;hours&quot;:1}']
+		]) {
+			const markup = renderToStaticMarkup(react.createElement(ProviderAccountCard, {
+				...props, showSource, account: { ...base, mode, ageMs, lastSuccessAt: fixedNow - ageMs, balance: { remaining: 10, currency: "USD" } }
+			}));
+			assert.ok(markup.includes(label), `header formats freshness ${ageMs} for ${mode}`);
+			assert.equal(markup.includes("account.health.age"), false, "no standalone age row");
+			assert.equal(markup.includes("account.health.lastAttempt"), ageMs > 300000, "attempt time requires strictly over five minutes");
+			assert.equal(markup.includes("account.health.lastSuccess"), ageMs > 300000, "success time requires strictly over five minutes");
+			assert.equal(markup.includes("account.health.provenance"), showSource, "source appears only in the detail card");
+			if (!showSource && ageMs <= 300000) assert.equal(markup.includes("<dl"), false, "no empty metadata divider in fresh hover");
+		}
+	}
+	const savedNow = realNow, savedInterval = window.setInterval, savedClear = window.clearInterval;
+	let now = 2000000, tick, cleared = false, renderer;
+	Date.now = () => now;
+	window.setInterval = (callback) => { tick = callback; return 17; };
+	window.clearInterval = () => { cleared = true; };
+	try {
+		const cachedHover = renderToStaticMarkup(react.createElement(ProviderAccountCard, {
+			...props, showSource: false, account: { ...base, ageMs: 0, lastSuccessAt: now - 600000 }
+		}));
+		assert.ok(cachedHover.includes('duration.minutes{&quot;minutes&quot;:10}'), "opening a cached hover uses success time, not an old age sample");
+		const account = { ...base, ageMs: 299000, lastSuccessAt: now - 299000 };
+		act(() => { renderer = TestRenderer.create(react.createElement(ProviderAccountCard, { ...props, account, showSource: false })); });
+		const badge = () => renderer.root.findByProps({ className: "usg_accountStatus" }).props.children;
+		assert.equal(badge(), "subscription.status.ok");
+		now += 1000; act(() => tick());
+		assert.equal(badge(), 'duration.minutes{"minutes":5}', "an open card ages across the five-minute boundary without a fetch");
+		assert.equal(renderer.root.findAllByType("dl").length, 0, "exactly five minutes still hides attempt times");
+		now += 1; act(() => tick());
+		assert.equal(renderer.root.findAllByType("dl").length, 1);
+		act(() => renderer.update(react.createElement(ProviderAccountCard, { ...props, account: { ...base, ageMs: 0, lastSuccessAt: now }, showSource: false })));
+		assert.equal(badge(), "subscription.status.ok", "a fresh snapshot resets the displayed age");
+		act(() => renderer.unmount()); renderer = null;
+		assert.equal(cleared, true, "local age ticker is cleaned up");
+	} finally {
+		if (renderer) act(() => renderer.unmount());
+		Date.now = savedNow; window.setInterval = savedInterval; window.clearInterval = savedClear;
+	}
+	console.log("shared card freshness boundaries, auto-aging, metadata and hover provenance policy ok");
+}
 
 const choices = buildProviderChoices([
 	{ id: "deepseek-official", displayName: "DeepSeek", adapter: "deepseek-balance", accountMode: "balance", configured: true },
