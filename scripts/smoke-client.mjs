@@ -1179,4 +1179,35 @@ await act(async () => { integrationRenderer.unmount(); });
 globalThis.fetch = originalFetch;
 
 console.log("sidebar panel, persistence, and provider selection policy ok");
+// Composer chip: one ring per usable window, capped at the three longest periods.
+const { quotaRingWindows, quotaWindowPeriod, composerQuotaShape, quotaRingLevel, QuotaRings } = exports_;
+const ringAccount = (windows) => ({ id: "ring-demo", mode: "subscription", status: "ok", windows });
+const ringWindows = quotaRingWindows(ringAccount([
+	{ kind: "session", windowSeconds: 18000, remainingPercent: 30 },
+	{ kind: "daily", windowSeconds: 86400, remainingPercent: 40 },
+	{ kind: "weekly", windowSeconds: 604800, remainingPercent: 50 },
+	{ kind: "monthly", windowSeconds: 2592000, remainingPercent: 60 }
+]));
+assert.deepEqual(ringWindows.map((window) => window.kind), ["daily", "weekly", "monthly"], "a fourth window must drop the shortest period");
+assert.ok(quotaWindowPeriod({ kind: "weekly" }) < quotaWindowPeriod({ kind: "monthly" }), "kind rank must order periods when no duration is reported");
+assert.equal(quotaWindowPeriod({ kind: "unknown-window" }), Number.POSITIVE_INFINITY);
+assert.deepEqual(quotaRingWindows(ringAccount([{ kind: "monthly", remainingPercent: 50 }, { kind: "weekly", amount: 3 }])).map((window) => window.kind), ["monthly"], "a window without a denominator must not become a ring");
+assert.deepEqual(quotaRingWindows(ringAccount([{ kind: "session", windowSeconds: 18000, remainingPercent: 30 }, { kind: "monthly", windowSeconds: 2592000, remainingPercent: 60 }])).map((window) => window.kind), ["session", "monthly"], "rings must be ordered inner (shortest) to outer (longest)");
+assert.equal(composerQuotaShape(ringAccount([{ kind: "monthly", remainingPercent: 50 }])), "rings");
+assert.equal(composerQuotaShape(ringAccount([{ kind: "monthly", amount: 12 }])), "glyph", "no denominator keeps the plain glyph");
+assert.equal(composerQuotaShape({ id: "balance-route", mode: "balance", status: "ok", balance: { remaining: 17.84, currency: "CNY" } }), "none", "a balance amount has no period to draw");
+assert.equal(composerQuotaShape(null), "glyph");
+assert.equal(quotaRingLevel(5), "critical");
+assert.equal(quotaRingLevel(20), "warn");
+assert.equal(quotaRingLevel(21), "ok");
+const ringMarkup = renderToStaticMarkup(react.createElement(QuotaRings, { windows: ringWindows }));
+assert.equal((ringMarkup.match(/<circle/g) ?? []).length, 6, "three windows must draw a track and an arc each");
+assert.equal((ringMarkup.match(/data-level="ok"/g) ?? []).length, 3);
+assert.match(ringMarkup, /stroke-dasharray=/);
+assert.match(renderToStaticMarkup(react.createElement(QuotaRings, { windows: [{ kind: "weekly", remainingPercent: 12 }] })), /data-level="warn"/);
+assert.match(renderToStaticMarkup(react.createElement(QuotaRings, { windows: [{ kind: "weekly", remainingPercent: 3 }] })), /data-level="critical"/);
+assert.equal((renderToStaticMarkup(react.createElement(QuotaRings, { windows: [{ kind: "weekly", remainingPercent: 0 }] })).match(/<circle/g) ?? []).length, 1, "an exhausted window must draw only its track");
+assert.match(source, /\.usg_composerQuotaRingArc\[data-level=critical\]\{stroke:var\(--dsw-alias-state-error-primary\)\}/);
+assert.match(source, /\.usg_composerQuotaRingArc\[data-level=warn\]\{stroke:var\(--dsw-alias-state-warn-primary\)\}/);
+
 console.log("SMOKE TEST PASSED");

@@ -20,7 +20,7 @@ Provider balances, subscription quotas, and token-usage analytics for the DeepSe
 
 ### Provider monitoring in the model picker (fork)
 
-This fork adds a compact quota/balance readout **immediately to the left of the DSH model selector** through the native \`conversation.input.right\` slot. The value follows the current session's selected *route*, not the model vendor. The readout uses the existing server-side account cache and never exposes API tokens.
+This fork adds a compact quota/balance readout **beside the DSH model selector** through the native \`conversation.input.right\` slot. The value follows the current session's selected *route*, not the model vendor. The readout uses the existing server-side account cache and never exposes API tokens. For quota accounts the leading mark is a concentric ring gauge: one ring per window, the innermost ring the shortest period and every ring outward a longer one, each arc showing that window's remaining share (at most 5% red, at most 20% amber, otherwise green). More than three windows drop the shortest periods; windows that report no denominator keep the plain `◉` mark; balance accounts show no mark at all. The percentage text is always shown.
 
 In **Settings → Models**, each configured Provider card contains a **Balance / quota monitoring** section. Choose the *actual backend* (Automatic, NewAPI, Sub2API, OpenCode Go, Z.ai, etc.), select the displayed metric (Balance, 5-hour/Session, Daily, Weekly, Monthly, Total quota, MCP), optionally override the HTTPS usage API Base URL, and optionally reference a credential name already configured in DSH. The two override fields are a pair: leave both empty to fall back to the route's own configured URL and key (models-page profile, stored key record, or `apiKeyEnv`); name either one and the other side stops borrowing entirely — fill both, or the monitor stays "not configured" rather than mixing an explicit value with a borrowed secret. Settings save automatically, independently of the model editor: choices save immediately; text saves after 600 ms of inactivity or on blur. Saving does not disable editing. Failed writes keep the draft and show an error; edit again or leave the field to retry. Wait for the saved status before closing or refreshing the browser. A route called \`zai\` that actually uses NewAPI should explicitly select **NewAPI**. Unsupported or unavailable selected windows show a neutral dash rather than fabricated values.
 
@@ -45,6 +45,8 @@ The promotional provider integration, auto-install preset, and the associated wa
 | 🔒 | 本机安全边界 | 数据端点仅接受回环 GET；Provider 额度配置由带防跨站请求头的显式回环 POST 写入；凭据只在服务端解析 |
 
 模型选择器旁的额度数字和侧栏「用量/余额」入口支持额度悬停预览：当前供应商为额度型账户且有额度窗口时，鼠标悬停或键盘聚焦会复用账户卡片展示全部窗口；移开、按 Escape 或打开完整面板后关闭。预览沿用当前账户缓存，不额外请求上游；余额型账户不增加悬停卡片。
+
+额度数字前的标记是同心圆环：每一圈对应一个额度窗口，内圈周期最短、越往外周期越长，弧长表示该窗口的剩余比例（≤5% 红、≤20% 黄、其余绿）。窗口超过 3 个时省略最短的周期、只保留最长的三个；没有百分比分母的窗口继续显示 `◉` 标记；余额型账户不显示任何标记，只显示金额。百分比数字在所有情况下都保留。
 
 账户卡片右上角统一显示数据新鲜度：不足 5 分钟显示「实时」，从 5 分钟起按分钟、小时、天格式化；只有超过 5 分钟才显示「上次尝试」和「上次成功」。不再单列「数据年龄」；「数据来源」仅在完整「用量/余额」面板中保留，悬停预览中隐藏。新鲜度在卡片显示期间本地自动更新，不额外查询上游。
 
