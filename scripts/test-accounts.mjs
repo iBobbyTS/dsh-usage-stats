@@ -3155,4 +3155,91 @@ console.log("snapshot -> " + snapshot.status);
 	console.log("Command Code placeholder provider policy ok");
 }
 
+// BEGIN provider-override pairing and own-config fallback
+{
+	const provider = {
+		id: "zai-coding-cn",
+		displayName: "Z.ai CN",
+		apiKeyEnv: "ZAI_CODING_CN_API_KEY",
+		baseURL: "https://api.ai-pixel.online/v1",
+		credentialRecord: "llm-pi-ai/zai-coding-cn",
+		ownedBaseURL: true
+	};
+	const specOf = (monitors) => resolveAccountSpec(provider, validateAccountConfig({ monitors }));
+
+	// Both overrides empty: fall back to the provider's own URL and key.
+	const empty = specOf({ "zai-coding-cn": { adapter: "new-api" } });
+	assert.equal(empty.baseURL, "https://api.ai-pixel.online/v1");
+	assert.equal(empty.apiKeyRef, "ZAI_CODING_CN_API_KEY");
+	assert.equal(empty.credentialRecord, "llm-pi-ai/zai-coding-cn");
+	assert.equal(empty.overrideIncomplete, false);
+
+	// Only the URL is explicit: the credential must not fall back.
+	const urlOnly = specOf({ "zai-coding-cn": { adapter: "new-api", usageBaseURL: "https://panel.example.com" } });
+	assert.equal(urlOnly.baseURL, "https://panel.example.com");
+	assert.equal(urlOnly.apiKeyRef, void 0, "an explicit URL must not borrow the provider key");
+	assert.equal(urlOnly.credentialRecord, void 0, "an explicit URL must not borrow the provider record");
+	assert.equal(urlOnly.overrideIncomplete, true);
+
+	// Only the credential is explicit: the route's own URL must not be borrowed.
+	const refOnly = specOf({ "zai-coding-cn": { adapter: "new-api", credentialRef: "PANEL_QUERY_KEY" } });
+	assert.equal(refOnly.baseURL, void 0, "an explicit credential must not borrow the route-owned URL");
+	assert.equal(refOnly.apiKeyRef, "PANEL_QUERY_KEY");
+	assert.equal(refOnly.overrideIncomplete, true);
+
+	// A plugin-canonical endpoint is not operator configuration: an explicit
+	// credential may still query it (deepseek-balance + named key).
+	const canonical = resolveAccountSpec(
+		{ id: "deepseek-official", displayName: "DeepSeek", apiKeyEnv: "DEEPSEEK_API_KEY", baseURL: "https://api.deepseek.com" },
+		validateAccountConfig({ monitors: { "deepseek-official": { adapter: "deepseek-balance", credentialRef: "DEEPSEEK_QUERY_KEY" } } })
+	);
+	assert.equal(canonical.baseURL, "https://api.deepseek.com");
+	assert.equal(canonical.apiKeyRef, "DEEPSEEK_QUERY_KEY");
+	assert.equal(canonical.overrideIncomplete, false);
+
+	// Both explicit: the pair stands alone.
+	const paired = specOf({ "zai-coding-cn": { adapter: "new-api", usageBaseURL: "https://panel.example.com", credentialRef: "PANEL_QUERY_KEY" } });
+	assert.equal(paired.baseURL, "https://panel.example.com");
+	assert.equal(paired.apiKeyRef, "PANEL_QUERY_KEY");
+	assert.equal(paired.credentialRecord, void 0);
+	assert.equal(paired.overrideIncomplete, false);
+
+	// A half-filled pair never reaches a query: neither side may be guessed.
+	for (const half of [urlOnly, refOnly]) {
+		const blocked = await queryAccount(half, credentials({ ZAI_CODING_CN_API_KEY: "own-key", PANEL_QUERY_KEY: "panel-key" }), {
+			fetch: async () => { throw new Error("a half-filled override pair must not fetch"); }
+		});
+		assert.equal(blocked.status, "not-configured");
+	}
+
+	// Both empty plus a stored models-page record: the record is the own key.
+	const recordCredentials = {
+		resolve: async () => void 0,
+		readRecord: async (key) => key === "llm-pi-ai/zai-coding-cn"
+			? { kind: "api-key", key: "stored-panel-key" }
+			: void 0
+	};
+	const viaRecord = await queryAccount(empty, recordCredentials, {
+		fetch: async (url, init) => {
+			if (String(url).endsWith("/api/status")) return jsonResponse({ data: { quota_per_unit: 100 } });
+			assert.equal(String(url), "https://api.ai-pixel.online/api/usage/token/");
+			assert.equal(init.headers.authorization, "Bearer stored-panel-key");
+			return jsonResponse({ code: true, data: { name: "glm", user_quota: { total_available: 100, total_used: 40 } } });
+		}
+	});
+	assert.equal(viaRecord.status, "ok");
+	assert.equal(viaRecord.balance.remaining, 1, "the record key must flow through the NewAPI quota math");
+
+	// A named reference still wins the fallback when no record is stored.
+	const viaEnv = await queryAccount(empty, credentials({ ZAI_CODING_CN_API_KEY: "env-panel-key" }), {
+		fetch: async (url, init) => {
+			if (String(url).endsWith("/api/status")) return jsonResponse({ data: { quota_per_unit: 100 } });
+			assert.equal(init.headers.authorization, "Bearer env-panel-key");
+			return jsonResponse({ code: true, data: { name: "glm", user_quota: { total_available: 100, total_used: 40 } } });
+		}
+	});
+	assert.equal(viaEnv.status, "ok");
+	console.log("Provider override pairing and own-config fallback ok");
+}
+
 console.log("ACCOUNT TESTS PASSED");
