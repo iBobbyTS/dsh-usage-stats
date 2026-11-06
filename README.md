@@ -6,6 +6,10 @@
 
 本项目 Fork 自 [Ychris12138/dsh-usage-stats](https://github.com/Ychris12138/dsh-usage-stats)。本 Fork 的包内身份仍为 `@ychris12138/dsh-usage-stats`；上游 npm 包和市场条目不包含本 Fork 的修改。
 
+## 兼容性
+
+已验证：DSH 0.2.2-rc.1（源码与自动化检查）；尚未完成 Desktop 实测。
+
 ## 安装
 
 在 DSH 的 **插件 → 添加 → Git 仓库** 输入：
@@ -16,7 +20,7 @@ https://github.com/iBobbyTS/dsh-usage-stats.git
 
 选择实际使用的 profile：Desktop 为 `desktop`，CLI web 通常为 `web`。只保留一份安装，避免与旧手工 Cordis 注册重复。安装后重启对应 DSH Host；Desktop 需完全退出后重新打开，只刷新窗口不会加载新的服务端代码。
 
-如需验证指定提交，使用该提交构建的本地 `.tgz`，步骤见[开发与分发](docs/development.md)。当前源码已针对 DSH `0.2.2-rc.1` 检查；旧宿主的部分功能按能力降级，真实账户与安装验收应分别确认。
+如需验证指定提交，使用该提交构建的本地 `.tgz`，步骤见[开发与分发](docs/development.md)。
 
 ## 使用
 
