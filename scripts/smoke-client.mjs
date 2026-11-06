@@ -1197,6 +1197,15 @@ assert.equal(composerQuotaShape(ringAccount([{ kind: "monthly", remainingPercent
 assert.equal(composerQuotaShape(ringAccount([{ kind: "monthly", amount: 12 }])), "glyph", "no denominator keeps the plain glyph");
 assert.equal(composerQuotaShape({ id: "balance-route", mode: "balance", status: "ok", balance: { remaining: 17.84, currency: "CNY" } }), "none", "a balance amount has no period to draw");
 assert.equal(composerQuotaShape(null), "glyph");
+// The arcs and the percentage share one predicate: a snapshot whose value is
+// suppressed must not paint a fresh-looking remainder next to the "—" fallback.
+const staleRing = { ...ringAccount([{ kind: "weekly", remainingPercent: 61 }]), stale: true };
+assert.equal(badgeAccountValue(staleRing, "auto"), null, "a stale snapshot suppresses its value");
+assert.equal(composerQuotaShape(staleRing), "glyph", "a stale window must not paint an arc without its value");
+assert.equal(composerQuotaShape({ ...staleRing, status: "rate-limited" }), "glyph", "a failed retained snapshot falls back to the plain glyph");
+assert.equal(composerQuotaShape(ringAccount([{ kind: "weekly", remainingPercent: 61 }]), "window:session"), "glyph", "a metric that resolves to no window must not paint arcs");
+assert.equal(composerQuotaShape(ringAccount([{ kind: "weekly", remainingPercent: 61 }]), "window:weekly"), "rings", "a matching window metric still draws its arc");
+assert.match(source, /composerQuotaShape\(account, metric\)/, "the composer chip must pass its display metric into the shape gate");
 assert.equal(quotaRingLevel(5), "critical");
 assert.equal(quotaRingLevel(20), "warn");
 assert.equal(quotaRingLevel(21), "ok");

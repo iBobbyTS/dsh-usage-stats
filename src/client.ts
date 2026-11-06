@@ -691,10 +691,19 @@ function quotaRingWindows(account: AccountSnapshot | null | undefined) {
  * Composer chip leading shape: concentric rings for a subscription with usable
  * percentages, the plain glyph when no window carries a denominator, and nothing
  * at all for balance accounts — a currency amount has no period to draw.
+ *
+ * A retained stale snapshot keeps its last windows for diagnosis, but the chip
+ * value suppresses them. Gating the arcs on the windows alone would then paint a
+ * fresh-looking remainder beside "—", so the shape shares the value's predicate:
+ * no usable value under this metric, no arcs.
  */
-function composerQuotaShape(account: AccountSnapshot | null | undefined) {
+function composerQuotaShape(
+  account: AccountSnapshot | null | undefined,
+  metric = 'auto',
+) {
   if (account === null || account === void 0) return 'glyph'
   if (account.mode !== 'subscription') return 'none'
+  if (badgeAccountValue(account, metric) === null) return 'glyph'
   return quotaRingWindows(account).length > 0 ? 'rings' : 'glyph'
 }
 /** Per-ring severity: the same 5% / 20% thresholds the badge already warns at. */
@@ -1384,7 +1393,8 @@ function ModelQuotaReadout({
   }, [providerId])
   if (providerId === null) return null
   const account = snapshot?.account?.id === providerId ? snapshot.account : null
-  const amount = badgeAccountValue(account, snapshot?.displayMetric ?? 'auto')
+  const metric = snapshot?.displayMetric ?? 'auto'
+  const amount = badgeAccountValue(account, metric)
   const alert =
     amount !== null && amount.value <= 5
       ? 'critical'
@@ -1426,7 +1436,7 @@ function ModelQuotaReadout({
   ]
     .filter(Boolean)
     .join('\n')
-  const shape = composerQuotaShape(account)
+  const shape = composerQuotaShape(account, metric)
   const rings = shape === 'rings' ? quotaRingWindows(account) : []
   return react.createElement(
     QuotaHoverCard,

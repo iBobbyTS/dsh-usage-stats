@@ -123,5 +123,16 @@ await flush(()=>{renderer=Renderer.create(React.createElement(ex.ModelQuotaReado
 await flush(()=>renderer.root.findAll(node=>node.type==='div'&&node.props.className==='usg_composerQuotaHover')[0].props.onMouseEnter());
 assert.equal(renderer.root.findAllByProps({'data-usage-stats-quota-preview':true}).length,0,'composer balances never gain quota hover');
 assert.match(renderer.root.findByProps({'data-provider-quota-chip':a}).props.title,/Balance:/,'balance text tooltip remains unchanged');
-await flush(()=>renderer.unmount());setFollowServices(null);globalThis.fetch=subscriptionFetch;
+await flush(()=>renderer.unmount());
+// A retained stale snapshot keeps its windows, but the chip must not paint an arc
+// while its percentage is suppressed.
+globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({ok:true,displayMetric:'auto',account:{id:b,mode:'subscription',adapter:'quota-source',status:'rate-limited',stale:true,windows:[{kind:'weekly',remainingPercent:61,usedPercent:39}]}})});
+await flush(()=>dir.store.set(selection(b)));
+await flush(()=>{renderer=Renderer.create(React.createElement(ex.ModelQuotaReadout,{sessionId:'main',t:k=>k}),{createNodeMock:()=>trigger});});
+const staleChip=renderer.root.findByProps({'data-provider-quota-chip':b});
+assert.equal(staleChip.props['data-shape'],'glyph','a stale quota falls back to the plain glyph');
+assert.equal(renderer.root.findAllByProps({className:'usg_composerQuotaRing'}).length,0,'a stale quota must not paint a progress arc');
+assert.equal(renderer.root.findByProps({className:'usg_composerQuotaValue'}).props.children,'—','a stale quota keeps the em-dash placeholder');
+await flush(()=>renderer.unmount());
+setFollowServices(null);globalThis.fetch=subscriptionFetch;
 console.log('SESSION FOLLOW CONTROLLER + COMPOSER QUOTA HOVER INTEGRATION TESTS PASSED');
