@@ -6,8 +6,9 @@ import { resolve, join } from 'node:path'
 const require = createRequire(import.meta.url)
 const React = require('react')
 const { create, act } = require('react-test-renderer')
-const target = resolve(process.argv[2] ?? '../dsh-plugin-chatgpt')
-const { build } = createRequire(join(target, 'package.json'))('esbuild')
+if (!process.argv[2]) throw new Error('Pass the prepared ChatGPT candidate directory')
+const target = resolve(process.argv[2])
+const { build } = require('esbuild')
 const result = await build({ entryPoints: [join(target, 'src/client/codex-quota.tsx')], bundle: true,
   format: 'cjs', platform: 'browser', jsx: 'automatic', external: ['react', 'react/jsx-runtime'], write: false })
 const module = { exports: {} }

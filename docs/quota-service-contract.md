@@ -70,9 +70,9 @@ ctx.inject(['usageQuota'], child => {
 
 不得发送凭据、授权文件内容、原始响应、真实账号 ID、敏感 URL、请求头或任意错误给消费方。凭据路径选择/授权属于用户操作，不提供可由 agent 自行授予权限的工具。
 
-回归：`npm run test:quota`。
+回归：`pnpm test:quota`。
 
-跨仓库真实 Cordis 联调（先在 ChatGPT 仓库执行 `npm run build`）：
+跨仓库真实 Cordis 联调：先在 ChatGPT 候选仓库执行 `pnpm install --frozen-lockfile`、`pnpm build:runtime`，再从本仓库执行：
 
 ```sh
 node scripts/test-quota-integration.mjs /absolute/path/to/dsh-plugin-chatgpt

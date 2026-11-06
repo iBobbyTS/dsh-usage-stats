@@ -1,0 +1,4582 @@
+import type {
+  AccountSnapshot,
+  CreditBalance,
+  UsageWindow,
+  ModelUsage,
+  DayUsage,
+  SessionUsage,
+  UsageView,
+  ProviderView,
+  ProviderOption,
+  BudgetWindow,
+} from './view-protocol.js'
+import type {
+  Translate,
+  Stop,
+  Store,
+  Directory,
+  FollowServices,
+  FollowState,
+  ClientContext,
+  Payload,
+} from './client-contract.js'
+interface HeatCell {
+  key: string
+  date: Date | null
+  day: number
+  tokens: number | null
+  hitRate: number | null
+  inMonth: boolean
+  future: boolean
+}
+type CardProps = {
+  provider: ProviderView | null | undefined
+  account: AccountSnapshot | null | undefined
+  accountLoading?: boolean
+  accountError?: string | null
+  translate: Translate
+  onRetry?: () => void
+  showSource?: boolean
+}
+function errorMessage(error: unknown): string {
+  return error !== null && typeof error === 'object' && 'message' in error
+    ? String(error.message)
+    : String(error)
+}
+import * as react from 'react'
+import * as react_jsx_runtime from 'react/jsx-runtime'
+import * as react_dom from 'react-dom'
+import { primitives } from './client-contract.js'
+//#region icon resolution
+/**
+ * The harness icon set moved the rendered size out of the export name
+ * (`IconCloseOutline16` → `IconCloseOutlineRegular`, size as a prop) and
+ * dropped several glyphs, so a hard reference to one spelling turns a host
+ * upgrade into a render-time throw and the panel disappears. Each glyph is
+ * resolved by every known spelling, with an inline path as the last resort.
+ */
+const fallbackIcon = (path: string) =>
+  function FallbackIcon(props: { size?: number }) {
+    const size =
+      props !== null && props !== void 0 && typeof props.size === 'number'
+        ? props.size
+        : 16
+    return react.createElement(
+      'svg',
+      {
+        viewBox: '0 0 16 16',
+        width: size,
+        height: size,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.3,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        'aria-hidden': 'true',
+      },
+      react.createElement('path', { d: path }),
+    )
+  }
+/** First exported spelling of one glyph, or the inline fallback. */
+const resolveIcon = (names: string[], path: string) => {
+  for (const name of names) {
+    if (typeof primitives[name] === 'function') return primitives[name]
+  }
+  return fallbackIcon(path)
+}
+const IconData = resolveIcon(
+  ['IconDataOutline16', 'IconDataOutlineRegular'],
+  'M2.5 13.5h11M4.5 13.5V8.5m4 5V4.5m4 9v-3',
+)
+const IconRefresh = resolveIcon(
+  ['IconRefreshOutline14', 'IconRefreshOutlineRegular'],
+  'M13 8a5 5 0 1 1-1.6-3.7M13 2.5V5h-2.6',
+)
+const IconClose = resolveIcon(
+  ['IconCloseOutline16', 'IconCloseOutlineRegular'],
+  'M4 4l8 8M12 4l-8 8',
+)
+const IconChevronLeft = resolveIcon(
+  ['IconChevronLeftOutline14', 'IconChevronLeftOutlineRegular'],
+  'M9.5 3.5 5.5 8l4 4.5',
+)
+const IconChevronRight = resolveIcon(
+  ['IconChevronRightOutline14', 'IconChevronRightOutlineRegular'],
+  'M6.5 3.5 10.5 8l-4 4.5',
+)
+const Tooltip =
+  typeof primitives.Tooltip === 'function'
+    ? primitives.Tooltip
+    : function FallbackTooltip(props: React.PropsWithChildren) {
+        return react.createElement(
+          react.Fragment,
+          null,
+          props !== null && props !== void 0 ? (props.children ?? null) : null,
+        )
+      }
+//#endregion
+//#region css
+const css = [
+  '.usg_layer{flex:none;align-items:center;width:calc(100% + 4px);height:42px;margin:4px -2px;display:flex;position:relative}',
+  '.usg_footerButtons{align-items:center;width:100%;display:flex}',
+  '.usg_badge{box-sizing:border-box;width:100%;height:42px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}',
+  '.usg_badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_badge[data-active]{background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_badgeLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}',
+  '.usg_badgeAmount{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;font-size:12px;font-weight:600;line-height:16px}',
+  '.usg_badgeOk{color:var(--dsw-alias-state-success-primary)}',
+  '.usg_badgeBad{color:var(--dsw-alias-state-error-primary)}',
+  '.usg_badgeCount{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex:none;margin-left:auto;font-size:12px;line-height:16px}',
+  '.usg_layer.usg_rail{width:36px;height:36px;margin:0}',
+  '.usg_layer.usg_rail .usg_badge{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;padding:0}',
+  '.usg_layer.usg_rail .usg_footerButtons{flex-direction:column;gap:2px}',
+  '.usg_badge:focus-visible,.usg_iconButton:focus-visible,.usg_retry:focus-visible,.usg_exportLink:focus-visible,.usg_navButton:focus-visible,.usg_todayButton:focus-visible,.usg_back:focus-visible,.usg_providerSelect:focus-visible,.usg_cell:focus-visible,.usg_day:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+  // Panel surface: the official elevated-menu skin (menu colour, r12,
+  // prominent elevation) that the built-in stat dialogs and menus use.
+  // 0.1.7 made --dsw-specific-menu translucent (dark 0.5 / light 0.58) and
+  // pairs it with `backdrop-filter: var(--dsw-menu-backdrop-filter)`
+  // (blur(40px) saturate(150%)). Earlier builds define no blur token — the
+  // declaration then fails at computed-value time and backdrop-filter stays
+  // `none` — and keep an opaque menu colour, so the official colour shows
+  // through with no version check.
+  // 100 clears DSH's own chrome but loses to mobile adaptation shells, which
+  // stack at 2147482000-2147482999 above the official overlay layer. Stay one
+  // step under the 2147483647 ceiling.
+  '.usg_panel{z-index:2147483000;box-sizing:border-box;border:0;background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base)));backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent,var(--dsw-shadow-lv2));width:440px;max-width:calc(100vw - 24px);max-height:74vh;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);--usg-blue:#1f6feb;--usg-cellEmpty:rgba(128,128,128,0.16);border-radius:12px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden}',
+  // The header paints no surface of its own: an opaque band would cover the
+  // glass the panel surface just established.
+  '.usg_header{box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;justify-content:space-between;align-items:center;min-height:44px;padding:10px 12px;display:flex}',
+  '.usg_headerLeft{align-items:center;gap:8px;display:flex}',
+  '.usg_title{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:20px}',
+  '.usg_headerActions{align-items:center;gap:2px;display:flex}',
+  '.usg_iconButton{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;display:inline-flex}',
+  '.usg_iconButton:hover{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_body{flex:1;min-height:0;padding:4px 14px 14px;overflow-y:auto}',
+  '.usg_section{margin-top:12px}',
+  '.usg_sectionTitle{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:0 0 6px}',
+  '.usg_note{color:var(--dsw-alias-label-tertiary);margin:4px 0;font-size:12px;line-height:18px}',
+  '.usg_error{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;justify-content:space-between;align-items:flex-start;gap:8px;margin:4px 0;padding:7px 8px;font-size:12px;line-height:18px;display:flex}',
+  '.usg_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0}',
+  '.usg_balanceCard{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-fill-l1, transparent);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}',
+  '.usg_balanceMain{align-items:baseline;gap:8px;display:flex}',
+  '.usg_balanceAmount{color:var(--dsw-alias-label-primary);font-size:24px;font-weight:600;line-height:32px;font-variant-numeric:tabular-nums}',
+  '.usg_balanceStatus{align-items:center;gap:5px;font-size:12px;line-height:18px;display:inline-flex}',
+  '.usg_balanceOk{color:var(--dsw-alias-state-success-primary)}',
+  '.usg_balanceBad{color:var(--dsw-alias-state-error-primary)}',
+  '.usg_balanceRows{color:var(--dsw-alias-label-secondary);flex-direction:column;gap:2px;font-size:12px;line-height:18px;display:flex}',
+  '.usg_balanceRow{justify-content:space-between;display:flex}',
+  '.usg_providerPicker{align-items:center;gap:8px;margin:6px 0 8px;font-size:12px;line-height:18px;display:flex}',
+  '.usg_providerPickerLabel{color:var(--dsw-alias-label-tertiary);flex:none}',
+  // The panel surface is translucent, so an opaque control fill would sit on
+  // it as a foreign block. Controls follow the shell's glass-menu pattern
+  // instead (see ModelSelect's chip): transparent fill, a hairline ring, and
+  // the shared hover fill. The native option list stays opaque, because a
+  // popup drawn over the page cannot inherit the panel's surface.
+  '.usg_providerSelect{box-sizing:border-box;min-width:0;flex:1;color:var(--dsw-alias-label-primary);background:transparent;border:0.5px solid var(--dsw-alias-border-l3,var(--dsw-alias-border-l2));border-radius:8px;padding:4px 8px;font:inherit;font-size:12px;line-height:18px}',
+  '.usg_providerSelect:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_providerSelect option{background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-base)));color:var(--dsw-alias-label-primary)}',
+  '.usg_pricingWindow{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-fill-l1,transparent);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;margin:-2px 0 8px;padding:5px 8px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}',
+  '.usg_pricingWindow[data-tariff=peak]{color:var(--dsw-alias-state-warning-primary,var(--dsw-alias-label-secondary))}',
+  '.usg_pricingWindow[data-tariff=offPeak]{color:var(--dsw-alias-state-success-primary,var(--dsw-alias-label-secondary))}',
+  '.usg_accountGrid{flex-direction:column;gap:8px;display:flex}',
+  '.usg_exportLinks{display:flex;flex-wrap:wrap;gap:6px}',
+  '.usg_exportLink{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-fill-l1,transparent);border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:4px 7px;font-size:11px;line-height:16px;text-decoration:none}',
+  '.usg_exportLink:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_accountCard{--usg-providerAccent:#1f6feb;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:linear-gradient(135deg,color-mix(in srgb,var(--usg-providerAccent) 8%,transparent),transparent 42%);border-radius:12px;padding:10px 11px;display:flex;flex-direction:column;gap:9px}',
+  '.usg_accountCard[data-provider=deepseek],.usg_accountCard[data-provider=deepseek-official]{--usg-providerAccent:#1f6feb}',
+  '.usg_accountCard[data-provider=opencode-go]{--usg-providerAccent:#00a67d}',
+  '.usg_accountCard[data-provider=ollama],.usg_accountCard[data-adapter=ollama]{--usg-providerAccent:#d97706}',
+  '.usg_accountCard[data-provider=zai],.usg_accountCard[data-provider=zai-coding-cn]{--usg-providerAccent:#7656e8}',
+  '.usg_accountCard[data-provider=openrouter]{--usg-providerAccent:#6366f1}',
+  '.usg_accountCard[data-provider=commandcode],.usg_accountCard[data-adapter=commandcode-goat]{--usg-providerAccent:#65a30d}',
+  '.usg_accountCard[data-provider=moonshotai],.usg_accountCard[data-provider=moonshotai-cn],.usg_accountCard[data-provider=kimi],.usg_accountCard[data-provider=kimi-coding]{--usg-providerAccent:#e07a1f}',
+  '.usg_quotaPreview>.usg_accountCard,.usg_quotaPreview .usg_balanceCard{border:0;background:none;border-radius:0;padding:0}',
+  '.usg_accountHead{align-items:center;gap:8px;display:flex}',
+  '.usg_accountMark{width:24px;height:24px;color:#fff;background:var(--usg-providerAccent);border-radius:7px;justify-content:center;align-items:center;font-size:10px;font-weight:700;display:flex;box-shadow:0 4px 12px color-mix(in srgb,var(--usg-providerAccent) 25%,transparent)}',
+  '.usg_accountIdentity{min-width:0;flex:1;display:flex;flex-direction:column}',
+  '.usg_accountName{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px}',
+  '.usg_accountPlan{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;overflow:hidden}',
+  '.usg_accountStatus{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-fill-l2);border-radius:999px;padding:2px 7px;font-size:10px;line-height:16px;white-space:nowrap}',
+  '.usg_accountStatus[data-status=ok]{color:var(--usg-providerAccent);background:color-mix(in srgb,var(--usg-providerAccent) 12%,transparent)}',
+  '.usg_accountHealth{border-top:1px solid var(--dsw-alias-border-l1);grid-template-columns:auto minmax(0,1fr);gap:3px 10px;margin:2px 0 0;padding-top:7px;display:grid}',
+  '.usg_accountHealth dt{color:var(--dsw-alias-label-caption);font-size:10px;line-height:15px}',
+  '.usg_accountHealth dd{color:var(--dsw-alias-label-secondary);min-width:0;margin:0;font-size:10px;line-height:15px;text-align:right;overflow-wrap:anywhere}',
+  '.usg_quotaList{flex-direction:column;gap:8px;display:flex}',
+  '.usg_quotaRow{display:flex;flex-direction:column;gap:4px}',
+  '.usg_quotaMeta{align-items:stretch;flex-direction:column;gap:2px;display:flex}',
+  '.usg_quotaLabel{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}',
+  '.usg_quotaValue{color:var(--dsw-alias-label-primary);font-size:11px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums}',
+  '.usg_quotaReset{color:var(--dsw-alias-label-caption);font-size:10px;line-height:16px;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 3px}',
+  '.usg_quotaTrack{width:100%;height:8px;flex:none;background:color-mix(in srgb,var(--dsw-alias-label-primary) 18%,var(--dsw-alias-bg-layer-2));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);border-radius:999px;overflow:hidden}',
+  '.usg_quotaFill{height:100%;background:var(--usg-providerAccent);border-radius:inherit;min-width:0;transition:width .2s ease}',
+  '.usg_quotaEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:11px;line-height:17px}',
+  '.usg_statsRow{display:flex;gap:8px}',
+  '.usg_stat{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;flex:1;flex-direction:column;gap:1px;padding:8px 10px;display:flex}',
+  '.usg_statValue{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:22px;font-variant-numeric:tabular-nums;white-space:nowrap}',
+  '.usg_statLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
+  '.usg_hitCaption{color:var(--dsw-alias-label-tertiary);margin-top:6px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}',
+  '.usg_hitCaption b{color:var(--dsw-alias-label-secondary);font-weight:600}',
+  '.usg_heat{overflow-x:auto}',
+  '.usg_heatHeader{justify-content:space-between;align-items:center;margin-bottom:6px;display:flex}',
+  '.usg_heatHeader .usg_sectionTitle{flex:none;margin:0}',
+  '.usg_monthNav{align-items:center;gap:2px;display:flex}',
+  '.usg_navButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;display:inline-flex}',
+  '.usg_navButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_navButton:disabled{color:var(--dsw-alias-label-caption);cursor:default}',
+  '.usg_monthTitle{color:var(--dsw-alias-label-primary);min-width:88px;font-size:12px;font-weight:500;line-height:24px;text-align:center;font-variant-numeric:tabular-nums}',
+  '.usg_todayButton{cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:6px;padding:0 6px;font-size:11px;line-height:24px}',
+  '.usg_todayButton:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_monthGrid{flex-direction:column;gap:4px;width:100%;display:flex}',
+  '.usg_weekHeader{color:var(--dsw-alias-label-tertiary);grid-template-columns:repeat(7,1fr);gap:4px;display:grid}',
+  '.usg_weekLabel{font-size:10px;line-height:16px;text-align:center}',
+  '.usg_heatRow{grid-template-columns:repeat(7,1fr);gap:4px;display:grid}',
+  '.usg_cell{aspect-ratio:1/1;min-width:0;width:100%;border-radius:8px;background:var(--usg-cellEmpty);border:0;padding:0;cursor:pointer;justify-content:center;align-items:center;font-family:inherit;display:flex}',
+  '.usg_cell:hover{box-shadow:0 0 0 1px var(--dsw-alias-label-secondary)}',
+  '.usg_cellToday{box-shadow:0 0 0 1px var(--usg-blue)}',
+  '.usg_cellToday:hover{box-shadow:0 0 0 1px var(--usg-blue)}',
+  '.usg_cellSelected{box-shadow:0 0 0 2px var(--dsw-alias-label-primary)}',
+  '.usg_cellSelected:hover{box-shadow:0 0 0 2px var(--dsw-alias-label-primary)}',
+  '.usg_cellDay{font-size:12px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;pointer-events:none}',
+  '.usg_emptyCell{aspect-ratio:1/1;min-width:0;width:100%}',
+  '.usg_legend{align-items:center;gap:4px;margin-top:6px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);display:flex}',
+  '.usg_legendSwatch{width:10px;height:10px;border-radius:2px;background:var(--dsw-alias-fill-l2)}',
+  '.usg_days{flex-direction:column;display:flex}',
+  '.usg_day{width:100%;min-height:30px;align-items:center;gap:8px;border:0;background:0 0;border-bottom:1px solid var(--dsw-alias-border-l1);padding:5px 0;font:inherit;text-align:left;cursor:pointer;display:flex}',
+  '.usg_day:last-child{border-bottom:0}',
+  '.usg_day:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_dayDate{color:var(--dsw-alias-label-secondary);flex:0 1 104px;min-width:0;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;overflow:hidden}',
+  '.usg_dayTokens{color:var(--dsw-alias-label-primary);flex:none;min-width:84px;text-align:right;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}',
+  '.usg_dayHit{color:var(--dsw-alias-label-tertiary);flex:none;width:52px;font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}',
+  '.usg_dayBar{background:var(--usg-blue);border-radius:2px;height:6px;flex:1;min-width:4px;opacity:.65}',
+  '.usg_sessionCosts{flex-direction:column;display:flex}',
+  '.usg_sessionCostRow{align-items:center;gap:10px;border-bottom:1px solid var(--dsw-alias-border-l1);padding:6px 0;display:flex}',
+  '.usg_sessionCostRow:last-child{border-bottom:0}',
+  '.usg_sessionCostMain{min-width:0;flex:1;display:flex;flex-direction:column}',
+  '.usg_sessionCostTitle{color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}',
+  '.usg_sessionCostMeta{color:var(--dsw-alias-label-caption);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:15px;overflow:hidden}',
+  '.usg_sessionCostAmount{color:var(--dsw-alias-label-primary);font-size:12px;font-weight:600;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap}',
+  '.usg_detailHeader{align-items:center;gap:8px;display:flex}',
+  '.usg_back{cursor:pointer;width:26px;height:26px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:6px;justify-content:center;align-items:center;padding:0;display:inline-flex;flex:none}',
+  '.usg_back:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
+  '.usg_detailDate{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:20px}',
+  '.usg_detailHit{color:var(--dsw-alias-label-tertiary);margin-left:auto;font-size:11px;line-height:20px;font-variant-numeric:tabular-nums}',
+  '.usg_detailSummary{color:var(--dsw-alias-label-secondary);margin:6px 0 8px;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}',
+  '.usg_usageScope{max-width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px;color:inherit;background:transparent}',
+  '.usg_providerUsage{margin-top:8px;min-width:0}',
+  '.usg_providerSummary{cursor:pointer;padding:6px 0;overflow-wrap:anywhere;font-size:12px}',
+  '.usg_modelRow{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;margin-bottom:8px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}',
+  '.usg_modelRow:last-child{margin-bottom:0}',
+  '.usg_modelHead{align-items:center;gap:8px;display:flex}',
+  '.usg_modelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:500;line-height:18px;overflow:hidden}',
+  '.usg_modelTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}',
+  '.usg_modelHit{color:var(--dsw-alias-label-tertiary);flex:none;width:56px;font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}',
+  '.usg_modelBarTrack{background:var(--dsw-alias-fill-l2);border-radius:2px;height:5px;overflow:hidden}',
+  '.usg_modelBar{background:var(--usg-blue);border-radius:2px;height:5px}',
+  '.usg_modelMeta{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}',
+  '.usg_footerNote{color:var(--dsw-alias-label-caption);margin-top:10px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}',
+  '.usg_composerQuota{align-items:center;display:inline-flex;white-space:nowrap;gap:4px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary);padding:2px 5px;border-radius:6px;max-width:135px}',
+  '.usg_composerQuota[data-alert=critical]{color:var(--dsw-alias-state-error-primary)}',
+  '.usg_composerQuota[data-alert=normal]{color:var(--dsw-alias-label-primary)}',
+  '.usg_composerQuotaValue{font-weight:600;overflow:hidden;text-overflow:ellipsis}',
+  '.usg_composerQuotaRing{flex:none;overflow:visible}',
+  '.usg_composerQuotaRingTrack{fill:none;stroke:currentColor;opacity:.18}',
+  '.usg_composerQuotaRingArc{fill:none;stroke-linecap:round}',
+  '.usg_composerQuotaRingArc[data-level=ok]{stroke:var(--dsw-alias-state-success-primary)}',
+  '.usg_composerQuotaRingArc[data-level=warn]{stroke:var(--dsw-alias-state-warn-primary)}',
+  '.usg_composerQuotaRingArc[data-level=critical]{stroke:var(--dsw-alias-state-error-primary)}',
+  '.usg_providerExtras{border-top:1px solid var(--dsw-alias-border-l2);margin-top:12px;padding:12px 0 3px;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
+  '.usg_providerExtrasTitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);cursor:pointer;padding:3px 0}',
+  '.usg_providerExtras details[open] > .usg_providerExtrasGrid{margin-top:10px}',
+  '.usg_providerExtrasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:10px 12px}',
+  '.usg_providerExtrasField{display:flex;flex-direction:column;gap:4px;min-width:0}',
+  '.usg_providerExtrasControl{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);border-radius:7px;min-height:34px;padding:6px 8px;font:inherit;max-width:100%;width:100%;min-width:0;box-sizing:border-box}',
+  '.usg_providerExtrasControl::placeholder{color:var(--dsw-alias-label-secondary);opacity:1}',
+  '.usg_providerExtrasActions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px 12px;margin-top:12px}',
+  '.usg_providerExtrasStatus{flex:1 1 160px;min-width:0;overflow-wrap:anywhere;line-height:18px}',
+  '.usg_providerExtrasControl:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+  '.usg_providerExtrasError{color:var(--dsw-alias-state-error-primary)}',
+].join('')
+const tagId = 'dsh-usage-stats/UsageStats.module.css'
+if (
+  typeof document !== 'undefined' &&
+  document.querySelector(
+    'style[data-plugin-css=' + JSON.stringify(tagId) + ']',
+  ) === null
+) {
+  const tag = document.createElement('style')
+  tag.dataset.plugin = '@ychris12138/dsh-usage-stats'
+  tag.dataset.pluginCss = tagId
+  tag.textContent = css
+  document.head.appendChild(tag)
+}
+const S = {
+  layer: 'usg_layer',
+  rail: 'usg_rail',
+  footerButtons: 'usg_footerButtons',
+  badge: 'usg_badge',
+  badgeLabel: 'usg_badgeLabel',
+  badgeAmount: 'usg_badgeAmount',
+  badgeOk: 'usg_badgeOk',
+  badgeBad: 'usg_badgeBad',
+  badgeCount: 'usg_badgeCount',
+  panel: 'usg_panel',
+  header: 'usg_header',
+  headerLeft: 'usg_headerLeft',
+  title: 'usg_title',
+  headerActions: 'usg_headerActions',
+  iconButton: 'usg_iconButton',
+  body: 'usg_body',
+  section: 'usg_section',
+  sectionTitle: 'usg_sectionTitle',
+  note: 'usg_note',
+  error: 'usg_error',
+  retry: 'usg_retry',
+  providerPicker: 'usg_providerPicker',
+  providerPickerLabel: 'usg_providerPickerLabel',
+  providerSelect: 'usg_providerSelect',
+  pricingWindow: 'usg_pricingWindow',
+  accountGrid: 'usg_accountGrid',
+  exportLinks: 'usg_exportLinks',
+  exportLink: 'usg_exportLink',
+  accountCard: 'usg_accountCard',
+  accountHead: 'usg_accountHead',
+  accountMark: 'usg_accountMark',
+  accountIdentity: 'usg_accountIdentity',
+  accountName: 'usg_accountName',
+  accountPlan: 'usg_accountPlan',
+  accountStatus: 'usg_accountStatus',
+  accountHealth: 'usg_accountHealth',
+  quotaList: 'usg_quotaList',
+  quotaRow: 'usg_quotaRow',
+  quotaMeta: 'usg_quotaMeta',
+  quotaLabel: 'usg_quotaLabel',
+  quotaValue: 'usg_quotaValue',
+  quotaReset: 'usg_quotaReset',
+  quotaTrack: 'usg_quotaTrack',
+  quotaFill: 'usg_quotaFill',
+  quotaEmpty: 'usg_quotaEmpty',
+  balanceCard: 'usg_balanceCard',
+  balanceMain: 'usg_balanceMain',
+  balanceAmount: 'usg_balanceAmount',
+  balanceStatus: 'usg_balanceStatus',
+  balanceOk: 'usg_balanceOk',
+  balanceBad: 'usg_balanceBad',
+  balanceRows: 'usg_balanceRows',
+  balanceRow: 'usg_balanceRow',
+  statsRow: 'usg_statsRow',
+  stat: 'usg_stat',
+  statValue: 'usg_statValue',
+  statLabel: 'usg_statLabel',
+  hitCaption: 'usg_hitCaption',
+  heat: 'usg_heat',
+  heatHeader: 'usg_heatHeader',
+  monthNav: 'usg_monthNav',
+  navButton: 'usg_navButton',
+  monthTitle: 'usg_monthTitle',
+  todayButton: 'usg_todayButton',
+  monthGrid: 'usg_monthGrid',
+  weekHeader: 'usg_weekHeader',
+  weekLabel: 'usg_weekLabel',
+  heatRow: 'usg_heatRow',
+  cell: 'usg_cell',
+  cellSelected: 'usg_cellSelected',
+  cellToday: 'usg_cellToday',
+  cellDay: 'usg_cellDay',
+  emptyCell: 'usg_emptyCell',
+  legend: 'usg_legend',
+  legendSwatch: 'usg_legendSwatch',
+  days: 'usg_days',
+  day: 'usg_day',
+  dayDate: 'usg_dayDate',
+  dayTokens: 'usg_dayTokens',
+  dayHit: 'usg_dayHit',
+  dayBar: 'usg_dayBar',
+  sessionCosts: 'usg_sessionCosts',
+  sessionCostRow: 'usg_sessionCostRow',
+  sessionCostMain: 'usg_sessionCostMain',
+  sessionCostTitle: 'usg_sessionCostTitle',
+  sessionCostMeta: 'usg_sessionCostMeta',
+  sessionCostAmount: 'usg_sessionCostAmount',
+  detailHeader: 'usg_detailHeader',
+  back: 'usg_back',
+  detailDate: 'usg_detailDate',
+  detailHit: 'usg_detailHit',
+  detailSummary: 'usg_detailSummary',
+  usageScope: 'usg_usageScope',
+  providerUsage: 'usg_providerUsage',
+  providerSummary: 'usg_providerSummary',
+  modelRow: 'usg_modelRow',
+  modelHead: 'usg_modelHead',
+  modelName: 'usg_modelName',
+  modelTokens: 'usg_modelTokens',
+  modelHit: 'usg_modelHit',
+  modelBarTrack: 'usg_modelBarTrack',
+  modelBar: 'usg_modelBar',
+  modelMeta: 'usg_modelMeta',
+  footerNote: 'usg_footerNote',
+}
+//#endregion
+//#region helpers
+/** Local `YYYY-MM-DD` for a Date. */
+function dayKeyOf(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+/** Today's local `YYYY-MM-DD`. */
+function todayKey() {
+  return dayKeyOf(new Date())
+}
+/** Current month key `YYYY-MM`. */
+function currentMonthKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+/** Shift a `YYYY-MM` key by a signed month delta. */
+function shiftMonth(key: string, delta: number) {
+  const [year, month] = key.split('-').map(Number)
+  const date = new Date(year, month - 1 + delta, 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+/** Localized `YYYY-MM` → e.g. "2026年8月" / "Aug 2026". */
+function monthLabelOf(key: string, translate: Translate) {
+  const [year, month] = key.split('-').map(Number)
+  return translate('month.year', {
+    year,
+    month: monthName(month - 1, translate),
+  })
+}
+/** Group thousands. */
+function fmt(n: unknown) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+/** Compact form: 1234 → "1.2k". */
+function fmtCompact(n: number) {
+  if (n < 1000) return String(n)
+  if (n < 1000000) return `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`
+  return `${(n / 1000000).toFixed(1)}m`
+}
+/** Hit-rate display: null/undefined → "—". */
+function fmtHit(hitRate: unknown) {
+  return hitRate === null || hitRate === void 0 ? '—' : `${hitRate}%`
+}
+/** Currency-aware amount: `¥ 36.44` / `$ 12.00` (Intl, fallback keeps the raw value). */
+function fmtCurrency(amount: unknown, currency: unknown) {
+  if (amount === void 0 || amount === null) return '—'
+  const numeric = Number(amount)
+  if (!Number.isFinite(numeric)) return '—'
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: (currency ?? 'CNY') as string,
+    }).format(numeric)
+  } catch {
+    return `${currency ?? 'CNY'} ${amount}`
+  }
+}
+function budgetWindowText(
+  period: string,
+  window: BudgetWindow | undefined,
+  translate: Translate,
+) {
+  if (
+    window === null ||
+    typeof window !== 'object' ||
+    window.limit === null ||
+    window.limit === void 0
+  )
+    return null
+  const spent =
+    window.costComplete === true
+      ? fmtCurrency(window.estimatedSpend, window.currency)
+      : '—'
+  const limit = fmtCurrency(window.limit, window.currency)
+  const level = ['normal', 'warning', 'critical'].includes(window.level)
+    ? translate(`budget.level.${window.level}`)
+    : translate('budget.level.unknown')
+  return translate('budget.summary', {
+    period: translate(`budget.period.${period}`),
+    spent,
+    limit,
+    level,
+  })
+}
+function buildSessionCostRows(
+  sessions: SessionUsage[] | undefined,
+  limit = 20,
+  providerId: string | null = null,
+) {
+  if (!Array.isArray(sessions) || !Number.isInteger(limit) || limit <= 0)
+    return []
+  return sessions
+    .filter(
+      (session) =>
+        session !== null &&
+        typeof session === 'object' &&
+        (providerId === null ||
+          (Array.isArray(session.providers) &&
+            session.providers.includes(providerId))) &&
+        session.costComplete === true &&
+        typeof session.estimatedCost === 'number' &&
+        Number.isFinite(session.estimatedCost) &&
+        typeof session.currency === 'string' &&
+        session.currency !== '',
+    )
+    .sort((a, b) => {
+      const aTime =
+        typeof a.lastAt === 'string' ? Date.parse(a.lastAt) : Number.NaN
+      const bTime =
+        typeof b.lastAt === 'string' ? Date.parse(b.lastAt) : Number.NaN
+      const aRank = Number.isFinite(aTime) ? aTime : -Infinity
+      const bRank = Number.isFinite(bTime) ? bTime : -Infinity
+      return bRank - aRank
+    })
+    .slice(0, limit)
+}
+function sessionCostMeta(session: SessionUsage, translate: Translate) {
+  const tokens =
+    typeof session?.tokens === 'number' && Number.isFinite(session.tokens)
+      ? fmt(session.tokens)
+      : null
+  const models = Array.isArray(session?.models)
+    ? session.models
+        .filter((model) => typeof model === 'string' && model !== '')
+        .slice(0, 2)
+    : []
+  if (tokens !== null && models.length > 0)
+    return translate('sessionCost.meta', { tokens, models: models.join(', ') })
+  if (tokens !== null) return translate('sessionCost.tokensOnly', { tokens })
+  return models.join(', ')
+}
+/**
+ * Collapsed-badge account value, derived from the unified v0.2.0 account
+ * snapshot. Balance providers show a real-currency amount; subscription /
+ * token-plan providers normally show the lowest remaining quota. OpenCode
+ * Go shows its monthly window explicitly; short windows still warn below.
+ * Returns null for loading / not-configured / unsupported /
+ * unavailable / stale states so the badge omits the numeric value rather
+ * than rendering a false warning — a stale snapshot that still carries
+ * previous balance or windows data must NOT render a colored value.
+ * @returns `{ kind: "balance", value, display }`, `{ kind: "percent", value, display }`, or null.
+ */
+function badgeAccountValue(
+  account: AccountSnapshot | null | undefined,
+  metric = 'auto',
+) {
+  if (account === null || account === void 0) return null
+  if (account.status !== 'ok' || account.stale === true) return null
+  if (
+    metric === 'balance' ||
+    (metric === 'auto' && account.mode !== 'subscription')
+  ) {
+    if (
+      typeof account.balance?.remaining !== 'number' ||
+      !Number.isFinite(account.balance!.remaining)
+    )
+      return null
+    return {
+      kind: 'balance',
+      value: account.balance!.remaining,
+      display: fmtCurrency(
+        account.balance!.remaining,
+        account.balance!.currency,
+      ),
+    }
+  }
+  if (typeof metric === 'string' && metric.startsWith('window:')) {
+    const kind = metric.slice(7)
+    const window = badgeQuotaWindows(account).find(
+      (entry) => entry.kind === kind,
+    )
+    return window === undefined
+      ? null
+      : {
+          kind: 'percent',
+          period: kind,
+          value: window.remainingPercent,
+          display: Math.round(window.remainingPercent!) + '%',
+        }
+  }
+  if (account.mode === 'subscription') {
+    const windows = badgeQuotaWindows(account)
+    if (
+      account.adapter === 'opencode-go' ||
+      (account.adapter == null && account.id === 'opencode-go')
+    ) {
+      const monthly = (
+        Array.isArray(account.windows) ? account.windows : []
+      ).filter((window) => window?.kind === 'monthly')
+      if (
+        monthly.length !== 1 ||
+        !windows.includes(
+          monthly[0] as UsageWindow & { remainingPercent: number },
+        )
+      )
+        return null
+      const value = monthly[0].remainingPercent!
+      return { kind: 'percent', period: 'monthly', value, display: `${value}%` }
+    }
+    const percents = windows.map((window) => window.remainingPercent)
+    if (percents.length === 0) return null
+    const value = Math.min(...percents)
+    return { kind: 'percent', value, display: `${value}%` }
+  }
+  if (
+    account.balance !== null &&
+    account.balance !== void 0 &&
+    typeof account.balance!.remaining === 'number'
+  ) {
+    return {
+      kind: 'balance',
+      value: account.balance!.remaining,
+      display: fmtCurrency(
+        account.balance!.remaining,
+        account.balance!.currency,
+      ),
+    }
+  }
+  return null
+}
+function badgeQuotaWindows(
+  account: AccountSnapshot | null | undefined,
+): (UsageWindow & { remainingPercent: number })[] {
+  return Array.isArray(account?.windows)
+    ? (account.windows.filter(
+        (window) =>
+          window?.kind !== 'expired' &&
+          typeof window?.remainingPercent === 'number' &&
+          Number.isFinite(window.remainingPercent) &&
+          window.remainingPercent >= 0 &&
+          window.remainingPercent <= 100,
+      ) as (UsageWindow & { remainingPercent: number })[])
+    : []
+}
+/** Coarse period rank for window kinds that carry no explicit duration. */
+const WINDOW_KIND_PERIOD_RANK: Record<string, number> = {
+  session: 1,
+  daily: 2,
+  weekly: 3,
+  monthly: 4,
+  total: 5,
+}
+/** Sort key for a quota window: an explicit duration wins, then the kind's coarse rank. */
+function quotaWindowPeriod(window: UsageWindow) {
+  const seconds = Number(window?.windowSeconds)
+  if (Number.isFinite(seconds) && seconds > 0) return seconds
+  const rank = WINDOW_KIND_PERIOD_RANK[window?.kind]
+  return rank === void 0 ? Number.POSITIVE_INFINITY : rank
+}
+/**
+ * Windows the composer chip may draw as concentric rings: percent-bearing only,
+ * innermost (shortest period) first, capped at the three longest so a fourth
+ * window never squeezes the geometry below legibility.
+ */
+function quotaRingWindows(account: AccountSnapshot | null | undefined) {
+  if (account === null || account === void 0) return []
+  return badgeQuotaWindows(account)
+    .map((window, index) => ({
+      window,
+      index,
+      period: quotaWindowPeriod(window),
+    }))
+    .sort((left, right) =>
+      left.period === right.period
+        ? left.index - right.index
+        : left.period - right.period,
+    )
+    .slice(-3)
+    .map((entry) => entry.window)
+}
+/**
+ * Composer chip leading shape: concentric rings for a subscription with usable
+ * percentages, the plain glyph when no window carries a denominator, and nothing
+ * at all for balance accounts — a currency amount has no period to draw.
+ */
+function composerQuotaShape(account: AccountSnapshot | null | undefined) {
+  if (account === null || account === void 0) return 'glyph'
+  if (account.mode !== 'subscription') return 'none'
+  return quotaRingWindows(account).length > 0 ? 'rings' : 'glyph'
+}
+/** Per-ring severity: the same 5% / 20% thresholds the badge already warns at. */
+function quotaRingLevel(percent: number) {
+  return percent <= 5 ? 'critical' : percent <= 20 ? 'warn' : 'ok'
+}
+/**
+ * Low-balance warning policy for the collapsed badge, isolated by
+ * `account.mode`: balance uses an absolute amount (remaining <= 5 currency
+ * units), subscription uses the lowest remaining percent (<= 5%). A null
+ * account value is never a warning.
+ */
+function badgeWarnOf(account: AccountSnapshot | null | undefined) {
+  if (account?.mode === 'subscription') {
+    if (account.status !== 'ok' || account.stale === true) return false
+    return badgeQuotaWindows(account).some(
+      (window) => window.remainingPercent <= 5,
+    )
+  }
+  const value = badgeAccountValue(account)
+  if (value === null) return false
+  return value.value <= 5
+}
+/**
+ * Per-request staleness guard: each `start()` bumps a private counter and
+ * only the most recent start may `isCurrent()`. Usage and balance each
+ * hold their OWN loader, so the two never invalidate each other (the
+ * shared-counter race that dropped the first usage response).
+ */
+function createLoader() {
+  let current = 0
+  return {
+    start: () => ++current,
+    isCurrent: (id: number) => id === current,
+  }
+}
+/** True when a pointer event happened outside both the portaled panel and its sidebar badge. */
+function shouldDismissPanel(
+  path: EventTarget[] | undefined,
+  target: EventTarget | null,
+  layer: HTMLElement | null,
+  panel: HTMLElement | null,
+) {
+  const eventPath = Array.isArray(path) ? path : []
+  const inside = (root: HTMLElement | null) =>
+    root !== null &&
+    root !== void 0 &&
+    (eventPath.includes(root) ||
+      (target !== null &&
+        target !== void 0 &&
+        typeof root.contains === 'function' &&
+        root.contains(target as Node)))
+  return !inside(layer) && !inside(panel)
+}
+const SAFE_DIAGNOSTIC_REASONS = new Set([
+  'dns-resolution-failed',
+  'timeout',
+  'rate-limited',
+  'unauthorized',
+  'upstream-invalid-json',
+  'upstream-not-json',
+  'upstream-too-large',
+  'upstream-invalid-response',
+  'blocked-network',
+  'all-addresses-unreachable',
+  'no-validated-address',
+  'sub2api-balance-shape-unrecognized',
+  'unknown',
+])
+/** Defense-in-depth filter for server-provided, secret-free diagnostic reasons. */
+function safeDiagnosticReason(reason: unknown) {
+  return typeof reason === 'string' && SAFE_DIAGNOSTIC_REASONS.has(reason)
+    ? reason
+    : null
+}
+function diagnosticReasonText(reason: unknown, translate: Translate) {
+  const value = safeDiagnosticReason(reason)
+  if (value === null) return null
+  if (value === 'dns-resolution-failed')
+    return translate('account.reason.dnsResolutionFailed')
+  if (value === 'all-addresses-unreachable')
+    return translate('account.reason.allAddressesUnreachable')
+  if (value === 'upstream-not-json')
+    return translate('account.reason.upstreamNotJson')
+  if (value === 'upstream-invalid-json')
+    return translate('account.reason.upstreamInvalidJson')
+  if (value === 'upstream-too-large')
+    return translate('account.reason.upstreamTooLarge')
+  if (value === 'upstream-invalid-response')
+    return translate('account.reason.upstreamInvalidResponse')
+  if (value === 'timeout') return translate('account.reason.timeout')
+  if (value === 'rate-limited') return translate('account.reason.rateLimited')
+  if (value === 'unauthorized') return translate('account.reason.unauthorized')
+  if (value === 'blocked-network')
+    return translate('account.reason.blockedNetwork')
+  if (value === 'no-validated-address')
+    return translate('account.reason.noValidatedAddress')
+  if (value === 'sub2api-balance-shape-unrecognized')
+    return translate('account.reason.sub2apiBalanceShapeUnrecognized')
+  return translate('account.reason.unknown')
+}
+/**
+ * Normalize server-provided account metadata for the single selector.
+ * Adapter/mode selection belongs to the server registry, never UI guesses.
+ */
+function buildProviderChoices(providers: ProviderView[] | undefined) {
+  return Array.isArray(providers)
+    ? providers.map((provider) => ({
+        ...provider,
+        accountMode: provider.accountMode ?? 'balance',
+      }))
+    : []
+}
+function providerChoiceLabel(provider: ProviderView, translate?: Translate) {
+  return typeof provider?.displayName === 'string' &&
+    provider.displayName.trim() !== ''
+    ? provider.displayName
+    : String(provider?.id ?? '')
+}
+/** Locale-safe template interpolation: `t("key", {a})` replaces `{a}`. */
+function interpolate(template: string, params?: Record<string, unknown>) {
+  if (params === void 0) return template
+  return template.replace(/\{(\w+)\}/g, (match, key) =>
+    Object.hasOwn(params, key) ? String(params[key]) : match,
+  )
+}
+async function fetchJson(
+  path: string,
+  options: RequestInit = {},
+): Promise<Payload> {
+  const response = await fetch(path, {
+    ...options,
+    headers: { accept: 'application/json', ...options.headers },
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const payload = await response.json()
+  if (payload === null || typeof payload !== 'object')
+    throw new Error('unexpected response')
+  return payload
+}
+function accountRequestHeaders() {
+  const locale =
+    typeof document === 'object' &&
+    typeof document.documentElement?.lang === 'string' &&
+    document.documentElement.lang.trim() !== ''
+      ? document.documentElement.lang.trim()
+      : typeof navigator === 'object' &&
+          typeof navigator.language === 'string' &&
+          navigator.language.trim() !== ''
+        ? navigator.language.trim()
+        : 'en'
+  return {
+    'x-dsh-usage-stats-client-locale': locale.slice(0, 64),
+    'x-dsh-usage-stats-timezone-offset': String(
+      -new Date().getTimezoneOffset() * 60,
+    ),
+  }
+}
+function enableFooterActionWrapping(host: HTMLElement) {
+  const hostStyle = window.getComputedStyle(host)
+  if (
+    !hostStyle.display.includes('flex') ||
+    hostStyle.flexDirection.startsWith('column') ||
+    hostStyle.flexWrap !== 'nowrap'
+  )
+    return void 0
+  const previous = host.style.flexWrap
+  host.style.flexWrap = 'wrap'
+  return () => {
+    host.style.flexWrap = previous
+  }
+}
+/**
+ * Build one month's calendar heatmap: weeks as rows (Mon-first), only
+ * the month's own days, padded with null placeholders. Cell tokens come
+ * from the day map; `max` is the month's largest daily total, used for
+ * the absolute log-scale color mapping.
+ * @param dayMap - date key → day entry map.
+ * @param year - calendar year.
+ * @param month - zero-based month.
+ * @returns `{ weeks, max }`.
+ */
+function buildMonthHeatmap(
+  dayMap: Map<string, DayUsage>,
+  year: number,
+  month: number,
+) {
+  const first = new Date(year, month, 1)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const lead = (first.getDay() + 6) % 7 // Monday = 0
+  const weeks = []
+  let max = 0
+  for (let w = 0; w * 7 < lead + daysInMonth; w += 1) {
+    const week = []
+    for (let d = 0; d < 7; d += 1) {
+      const dayNum = w * 7 + d - lead + 1
+      if (dayNum < 1 || dayNum > daysInMonth) {
+        week.push(null)
+        continue
+      }
+      const date = new Date(year, month, dayNum)
+      const key = dayKeyOf(date)
+      const entry = dayMap.get(key)
+      const tokens = entry?.tokens ?? 0
+      week.push({
+        key,
+        day: dayNum,
+        tokens,
+        hitRate: entry?.cacheHitRate ?? null,
+      })
+      if (tokens > max) max = tokens
+    }
+    weeks.push(week)
+  }
+  return { weeks, max }
+}
+/**
+ * Codex-style blue cell color: continuous square-root mapping against
+ * the month's max (more tokens → strictly deeper blue, no banding),
+ * rendered as a plain rgba overlay of #1f6feb so it works in every
+ * browser/theme without color-mix support. Zero is the neutral gray
+ * "empty" cell. Returns the cell's background and text color.
+ */
+const BLUE_RGB = [31, 111, 235]
+function cellColor(tokens: number, max: number) {
+  if (tokens <= 0) {
+    return {
+      background: 'var(--usg-cellEmpty)',
+      color: 'var(--dsw-alias-label-secondary)',
+    }
+  }
+  const ratio = max > 0 ? Math.sqrt(tokens / max) : 1
+  const alpha = Math.min(1, 0.22 + 0.78 * ratio)
+  return {
+    background: `rgba(${BLUE_RGB[0]}, ${BLUE_RGB[1]}, ${BLUE_RGB[2]}, ${alpha.toFixed(3)})`,
+    color:
+      alpha >= 0.6
+        ? 'rgba(255,255,255,0.95)'
+        : 'var(--dsw-alias-label-primary)',
+  }
+}
+//#endregion
+//#region UsageStatsPanel
+const SELECTED_PROVIDER_STORAGE_KEY =
+  '@ychris12138/dsh-usage-stats:selected-provider:v1'
+function browserStorage() {
+  try {
+    return typeof window === 'object' ? (window.localStorage ?? null) : null
+  } catch {
+    return null
+  }
+}
+function validStoredProvider(value: unknown) {
+  return typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    !value.includes('\0')
+    ? value
+    : null
+}
+function readSelectedProvider(storage = browserStorage()) {
+  try {
+    const stored = storage?.getItem?.(SELECTED_PROVIDER_STORAGE_KEY) ?? null
+    const normalized = validStoredProvider(stored)
+    if (stored !== null && normalized === null)
+      storage?.removeItem?.(SELECTED_PROVIDER_STORAGE_KEY)
+    return normalized
+  } catch {
+    return null
+  }
+}
+function writeSelectedProvider(
+  providerId: string | null,
+  storage = browserStorage(),
+) {
+  try {
+    // The synthetic dropdown entry is an action, never provider state. A
+    // defensive no-op also preserves the previous real selection if this
+    // helper is called directly by a future UI refactor.
+    const normalized = validStoredProvider(providerId)
+    if (normalized === null)
+      storage?.removeItem?.(SELECTED_PROVIDER_STORAGE_KEY)
+    else storage?.setItem?.(SELECTED_PROVIDER_STORAGE_KEY, normalized)
+  } catch {
+    // Storage may be disabled or quota-limited. Selection remains usable
+    // for the current mount and silently falls back on the next one.
+  }
+}
+function reconcileSelectedProvider(
+  current: string | null,
+  providers: ProviderView[],
+  storage = browserStorage(),
+) {
+  // An empty response can be a transient provider-service refresh. Keep the
+  // current choice until a non-empty authoritative list can prove removal.
+  if (!Array.isArray(providers) || providers.length === 0) return current
+  if (
+    Array.isArray(providers) &&
+    providers.some((provider) => provider?.id === current)
+  )
+    return current
+  if (current !== null) writeSelectedProvider(null, storage)
+  if (!Array.isArray(providers) || providers.length === 0) return null
+  return (
+    providers.find(
+      (provider) => provider.id === 'deepseek-account' && provider.configured,
+    )?.id ??
+    providers.find(
+      (provider) => provider.id === 'deepseek-official' && provider.configured,
+    )?.id ??
+    providers.find((provider) => provider.id === 'deepseek')?.id ??
+    providers.find((provider) => provider.configured)?.id ??
+    providers[0].id
+  )
+}
+function authoritativeProviderList(payload: Payload) {
+  if (payload?.ok !== true) return null
+  return Array.isArray(payload.providers) ? payload.providers : []
+}
+const FOLLOW_STORAGE_KEY = '@ychris12138/dsh-usage-stats:follow-session:v1'
+let followServices: FollowServices | null = null
+const followServiceListeners = new Set<Stop>()
+const subscribeFollowServices = (listener: Stop) => {
+  followServiceListeners.add(listener)
+  return () => followServiceListeners.delete(listener)
+}
+const getFollowServices = () => followServices
+function setFollowServices(value: FollowServices | null) {
+  followServices = value
+  for (const listener of followServiceListeners) listener()
+}
+function readFollowPreference(storage: Storage | null) {
+  try {
+    return storage?.getItem(FOLLOW_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function writeFollowPreference(value: boolean, storage: Storage | null) {
+  try {
+    storage?.setItem(FOLLOW_STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    /* Keep this mount usable without storage. */
+  }
+}
+/** Subscribe only to the confirmed model directory of the single main view. */
+function watchSessionProvider(
+  services: FollowServices | null,
+  onChange: (state: FollowState) => void,
+) {
+  const list = services?.sessions?.list
+  if (
+    typeof list?.getSnapshot !== 'function' ||
+    typeof list?.subscribe !== 'function' ||
+    typeof services?.modelDirectories?.directoryFor !== 'function'
+  ) {
+    onChange({ status: 'unavailable' })
+    return () => {}
+  }
+  let active = true,
+    sessionId: string | null = null,
+    generation = 0,
+    stopDirectory: Stop | null = null,
+    last = ''
+  const publish = (state: FollowState) => {
+    const signature = JSON.stringify(state)
+    if (active && signature !== last) {
+      last = signature
+      onChange(state)
+    }
+  }
+  const clear = () => {
+    generation += 1
+    stopDirectory?.()
+    stopDirectory = null
+    sessionId = null
+  }
+  const sync = () => {
+    let snapshot
+    try {
+      snapshot = list.getSnapshot()
+    } catch {
+      clear()
+      publish({ status: 'unavailable' })
+      return
+    }
+    if (snapshot?.phase !== 'ready') {
+      clear()
+      publish({ status: 'unavailable' })
+      return
+    }
+    const main = Object.values(snapshot.byId ?? {}).filter(
+      (row) =>
+        typeof row?.id === 'string' &&
+        row.id !== '' &&
+        Number.isFinite(row.retainedBy?.mainView) &&
+        row.retainedBy!.mainView! > 0,
+    )
+    if (main.length !== 1) {
+      clear()
+      publish({ status: 'noSession' })
+      return
+    }
+    if (main[0].id === sessionId) return
+    clear()
+    sessionId = main[0].id
+    const id = sessionId,
+      token = generation
+    publish({ status: 'loading', sessionId: id })
+    let directory: Directory,
+      loaded = false
+    const current = () => active && token === generation
+    const emit = () => {
+      if (!current() || !loaded) return
+      try {
+        const state = directory.store.getSnapshot()
+        const selection = state?.current
+        if (
+          state?.status !== 'ready' ||
+          state.pending != null ||
+          state.routable !== true ||
+          state.error != null
+        ) {
+          publish({
+            status:
+              state?.status === 'loading' || state?.status === 'selecting'
+                ? 'loading'
+                : 'unavailable',
+            sessionId: id,
+          })
+        } else if (
+          typeof selection?.provider === 'string' &&
+          selection.provider !== '' &&
+          typeof selection.model === 'string' &&
+          selection.model !== ''
+        ) {
+          publish({
+            status: 'ready',
+            sessionId: id,
+            providerId: selection.provider,
+            model: selection.model,
+          })
+        } else publish({ status: 'unavailable', sessionId: id })
+      } catch {
+        publish({ status: 'unavailable', sessionId: id })
+      }
+    }
+    try {
+      directory = services.modelDirectories!.directoryFor(id)
+      if (
+        typeof directory?.store?.getSnapshot !== 'function' ||
+        typeof directory?.store?.subscribe !== 'function' ||
+        typeof directory?.load !== 'function'
+      )
+        throw new Error('unsupported directory')
+      stopDirectory = directory.store.subscribe(emit)
+      Promise.resolve(directory.load())
+        .then(() => {
+          loaded = true
+          emit()
+        })
+        .catch(() => {
+          if (current()) {
+            loaded = true
+            publish({ status: 'unavailable', sessionId: id })
+          }
+        })
+    } catch {
+      publish({ status: 'unavailable', sessionId: id })
+    }
+  }
+  let stopList: Stop | undefined
+  try {
+    stopList = list.subscribe(sync)
+    sync()
+  } catch {
+    clear()
+    publish({ status: 'unavailable' })
+  }
+  return () => {
+    active = false
+    clear()
+    stopList?.()
+  }
+}
+/** The right-hand composer seat supplies an exact session id. */
+function useSessionProviderId(sessionId: string | undefined) {
+  const services = react.useSyncExternalStore(
+    subscribeFollowServices,
+    getFollowServices,
+    getFollowServices,
+  )
+  const [selected, setSelected] = react.useState<string | null>(null)
+  react.useEffect(() => {
+    setSelected(null)
+    if (
+      typeof sessionId !== 'string' ||
+      typeof services?.modelDirectories?.directoryFor !== 'function'
+    )
+      return void 0
+    let directory
+    try {
+      directory = services.modelDirectories!.directoryFor(sessionId)
+    } catch {
+      return void 0
+    }
+    if (
+      typeof directory?.store?.getSnapshot !== 'function' ||
+      typeof directory?.store?.subscribe !== 'function'
+    )
+      return void 0
+    let mounted = true,
+      loaded = false
+    const read = () => {
+      if (!mounted || !loaded) return
+      let state
+      try {
+        state = directory.store.getSnapshot()
+      } catch {
+        setSelected(null)
+        return
+      }
+      const selection = state?.current
+      const providerId =
+        state?.status === 'ready' &&
+        state?.pending == null &&
+        state.routable === true &&
+        state.error == null &&
+        typeof selection?.provider === 'string' &&
+        selection.provider !== ''
+          ? selection.provider
+          : null
+      setSelected((previous) =>
+        previous === providerId ? previous : providerId,
+      )
+    }
+    const unsubscribe = directory.store.subscribe(read)
+    Promise.resolve()
+      .then(() => directory.load?.())
+      .then(() => {
+        if (mounted) {
+          loaded = true
+          read()
+        }
+      })
+      .catch(() => {
+        if (mounted) setSelected(null)
+      })
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [services, sessionId])
+  return selected
+}
+/**
+ * Concentric remaining-quota rings for the composer chip: the innermost arc
+ * covers the shortest window and every ring outward covers a longer one.
+ * The box keeps the composer row height, and an arc is only ever the
+ * reported remaining share — never an inferred percentage.
+ */
+function QuotaRings({
+  windows,
+  size = 22,
+}: {
+  windows: UsageWindow[]
+  size?: number
+}) {
+  const rings = Array.isArray(windows) ? windows.slice(0, 3) : []
+  const stroke = 2
+  const center = size / 2
+  const step = stroke + 1
+  const outer = center - stroke / 2
+  return react.createElement(
+    'svg',
+    {
+      'aria-hidden': true,
+      focusable: 'false',
+      className: 'usg_composerQuotaRing',
+      width: size,
+      height: size,
+      viewBox: '0 0 ' + size + ' ' + size,
+    },
+    rings.map((window, index) => {
+      const percent = Math.max(
+        0,
+        Math.min(100, Number(window?.remainingPercent)),
+      )
+      const radius = outer - (rings.length - 1 - index) * step
+      const circumference = 2 * Math.PI * radius
+      const arc = (circumference * percent) / 100
+      return react.createElement(
+        'g',
+        { key: String(window?.kind ?? index) + ':' + index },
+        [
+          react.createElement('circle', {
+            key: 'track',
+            className: 'usg_composerQuotaRingTrack',
+            cx: center,
+            cy: center,
+            r: radius,
+            strokeWidth: stroke,
+          }),
+          percent > 0
+            ? react.createElement('circle', {
+                key: 'arc',
+                className: 'usg_composerQuotaRingArc',
+                cx: center,
+                cy: center,
+                r: radius,
+                strokeWidth: stroke,
+                'data-level': quotaRingLevel(percent),
+                strokeDasharray: arc + ' ' + (circumference - arc),
+                transform: 'rotate(-90 ' + center + ' ' + center + ')',
+              })
+            : null,
+        ],
+      )
+    }),
+  )
+}
+/**
+ * Compact live quota chip for the composer right slot: one ring per window,
+ * the plain glyph when no window carries a denominator, and no leading
+ * glyph at all for balance accounts.
+ */
+function ModelQuotaReadout({
+  sessionId,
+  t,
+}: {
+  sessionId?: string
+  t?: (key: string) => string
+}) {
+  const translate: Translate = (key, params) =>
+    interpolate(t !== void 0 ? t(key) : key, params)
+  const zh =
+    typeof document !== 'undefined' &&
+    (
+      document.documentElement?.lang ||
+      (typeof navigator === 'object' ? navigator.language : '') ||
+      ''
+    )
+      .toLowerCase()
+      .startsWith('zh')
+  const label = (cn: string, en: string) => (zh ? cn : en)
+  const providerId = useSessionProviderId(sessionId)
+  const [snapshot, setSnapshot] = react.useState<Payload | null>(null)
+  react.useEffect(() => {
+    setSnapshot(null)
+    if (providerId === null) return void 0
+    let mounted = true,
+      sequence = 0
+    const refresh = async () => {
+      const id = ++sequence
+      try {
+        const payload = await fetchJson(
+          '/api/usage-stats/account?provider=' +
+            encodeURIComponent(providerId) +
+            '&activity=active',
+          { headers: accountRequestHeaders() },
+        )
+        if (mounted && id === sequence)
+          setSnapshot(payload?.ok === true ? payload : null)
+      } catch {
+        if (mounted && id === sequence) setSnapshot(null)
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(refresh, 60000)
+    const optionsChanged = (
+      event: Event & { detail?: { providerId?: string } },
+    ) => {
+      if (event?.detail?.providerId === providerId) void refresh()
+    }
+    window.addEventListener(
+      'usage-stats:provider-options-changed',
+      optionsChanged,
+    )
+    return () => {
+      mounted = false
+      window.clearInterval(timer)
+      window.removeEventListener(
+        'usage-stats:provider-options-changed',
+        optionsChanged,
+      )
+    }
+  }, [providerId])
+  if (providerId === null) return null
+  const account = snapshot?.account?.id === providerId ? snapshot.account : null
+  const amount = badgeAccountValue(account, snapshot?.displayMetric ?? 'auto')
+  const alert =
+    amount !== null && amount.value <= 5
+      ? 'critical'
+      : amount === null
+        ? 'unavailable'
+        : 'normal'
+  const windows = Array.isArray(account?.windows) ? account.windows : []
+  const title = [
+    account?.displayName ?? providerId,
+    ...windows.map((entry) => {
+      const value = Number.isFinite(entry?.remainingPercent)
+        ? Math.round(entry.remainingPercent!) + '%'
+        : '?'
+      return [entry?.label || entry?.kind || 'Quota', value].join(': ')
+    }),
+    account?.balance && typeof account.balance!.remaining === 'number'
+      ? 'Balance: ' +
+        fmtCurrency(account.balance!.remaining, account.balance!.currency)
+      : null,
+    account === null || account.status !== 'ok'
+      ? [
+          label('状态：', 'Status: ') +
+            (account === null
+              ? label('加载中…', 'loading')
+              : subscriptionStatusLabel(account.status, translate)),
+          account === null
+            ? null
+            : diagnosticReasonText(account.reason, translate),
+          account !== null &&
+          Array.isArray(account.missingCredentials) &&
+          account.missingCredentials.length > 0
+            ? label('缺少凭据：', 'Missing credentials: ') +
+              account.missingCredentials.join(', ')
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const shape = composerQuotaShape(account)
+  const rings = shape === 'rings' ? quotaRingWindows(account) : []
+  return react.createElement(
+    QuotaHoverCard,
+    {
+      provider: {
+        id: providerId,
+        displayName: account?.displayName ?? providerId,
+      },
+      account,
+      translate,
+      className: 'usg_composerQuotaHover',
+      placement: 'above',
+      accountLoading: false,
+      accountError: null,
+    },
+    react.createElement(
+      'span',
+      {
+        className: 'usg_composerQuota',
+        tabIndex:
+          account?.mode === 'subscription' && windows.length > 0 ? 0 : void 0,
+        title:
+          account?.mode === 'subscription' && windows.length > 0
+            ? void 0
+            : title,
+        role: 'status',
+        'data-provider-quota-chip': providerId,
+        'data-shape': shape,
+        'data-alert': alert,
+      },
+      [
+        shape === 'rings'
+          ? react.createElement(QuotaRings, { key: 'rings', windows: rings })
+          : shape === 'glyph'
+            ? react.createElement(
+                'span',
+                { key: 'glyph', 'aria-hidden': true },
+                '◉',
+              )
+            : null,
+        react.createElement(
+          'span',
+          { key: 'value', className: 'usg_composerQuotaValue' },
+          amount?.display ?? '—',
+        ),
+      ].filter(Boolean),
+    ),
+  )
+}
+const MONITOR_CHOICES = [
+  ['', ''],
+  ['new-api', 'NewAPI'],
+  ['sub2api', 'Sub2API'],
+  ['sub2api-auth', 'Sub2API Token'],
+  ['general', 'General API'],
+  ['deepseek-balance', 'DeepSeek'],
+  ['zai-balance', 'Z.ai Balance'],
+  ['zai-token-plan', 'Z.ai Coding Plan'],
+  ['opencode-go', 'OpenCode Go'],
+  ['openrouter-balance', 'OpenRouter'],
+  ['moonshot-balance', 'Moonshot'],
+  ['kimi-token-plan', 'Kimi Coding'],
+  ['minimax-token-plan', 'MiniMax'],
+  ['commandcode-goat', 'Command Code'],
+  ['ollama', 'Ollama'],
+  ['codearts-credits', 'CodeArts'],
+]
+const METRIC_CHOICES = [
+  ['auto', 'Auto'],
+  ['balance', 'Balance'],
+  ['window:session', '5-hour / Session'],
+  ['window:daily', 'Daily'],
+  ['window:weekly', 'Weekly'],
+  ['window:monthly', 'Monthly'],
+  ['window:quota', 'Total quota'],
+  ['window:mcp', 'MCP quota'],
+]
+/** Debounce drafts, serialize requests, and never report a superseded write as saved. */
+function createAutosave(
+  write: (option: ProviderOption) => Promise<unknown>,
+  report: (status: string, error?: unknown) => void,
+  delay = 600,
+) {
+  let timer: number | undefined,
+    pending: { value: ProviderOption; version: number } | undefined,
+    running: Promise<void> | undefined,
+    version = 0,
+    ready = false
+  const drain = (): Promise<void> => {
+    if (running)
+      return running.then(() => (ready && pending ? drain() : void 0))
+    if (!ready || !pending) return Promise.resolve()
+    const entry = pending
+    pending = void 0
+    ready = false
+    report('saving')
+    running = (async () => {
+      try {
+        await write(entry.value)
+        if (entry.version === version) report('saved')
+      } catch (error) {
+        if (entry.version === version) report('error', error)
+      }
+    })().finally(() => {
+      running = void 0
+    })
+    return running.then(() => (ready && pending ? drain() : void 0))
+  }
+  const flush = () => {
+    clearTimeout(timer)
+    timer = void 0
+    ready = true
+    return drain()
+  }
+  return {
+    schedule(value: ProviderOption, immediate = false) {
+      pending = { value, version: ++version }
+      ready = false
+      clearTimeout(timer)
+      report('waiting')
+      if (immediate) void flush()
+      else
+        timer = setTimeout(() => {
+          void flush()
+        }, delay)
+    },
+    flush,
+    cancel() {
+      clearTimeout(timer)
+      pending = void 0
+      ready = false
+      version += 1
+    },
+  }
+}
+const EMPTY_PROVIDER_OPTION: ProviderOption = Object.freeze({
+  adapter: null,
+  displayMetric: 'auto',
+  usageBaseURL: null,
+  credentialRef: null,
+})
+/**
+ * The keyed Models-page extension receives the real route id even if the
+ * route uses a shared adapter namespace. A display-name guess would map
+ * proxy-backed Z.ai routes to the wrong quota service.
+ */
+function ProviderMonitorSettings({
+  provider,
+  configured,
+}: {
+  provider: { provider: string }
+  configured?: boolean
+}) {
+  const id = provider?.provider
+  const [option, setOption] = react.useState(EMPTY_PROVIDER_OPTION)
+  const [resolvedAdapter, setResolvedAdapter] = react.useState<
+    string | null | undefined
+  >(null)
+  const [account, setAccount] = react.useState<
+    AccountSnapshot | null | undefined
+  >(null)
+  const [loading, setLoading] = react.useState(true)
+  const [saveState, setSaveState] = react.useState('')
+  const [error, setError] = react.useState('')
+  const optionRef = react.useRef(EMPTY_PROVIDER_OPTION)
+  const saverRef = react.useRef<ReturnType<typeof createAutosave> | null>(null)
+  const failedRef = react.useRef(false)
+  const [expanded, setExpanded] = react.useState(false)
+  const zh =
+    typeof document !== 'undefined' &&
+    (
+      document.documentElement?.lang ||
+      (typeof navigator === 'object' ? navigator.language : '') ||
+      ''
+    )
+      .toLowerCase()
+      .startsWith('zh')
+  const label = (cn: string, en: string) => (zh ? cn : en)
+  react.useEffect(() => {
+    setError('')
+    setSaveState('')
+    setLoading(true)
+    if (!expanded || !configured || typeof id !== 'string' || !id) return void 0
+    let mounted = true
+    const previousSave = saverRef.current?.flush()
+    const saver = createAutosave(
+      async (next) => {
+        const response = await fetchJson('/api/usage-stats/provider-options', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-dsh-usage-stats-action': 'save-provider-options',
+          },
+          body: JSON.stringify({ providerId: id, option: next }),
+        })
+        if (response?.ok !== true)
+          throw new Error('provider option save was rejected')
+        window.dispatchEvent(
+          new CustomEvent('usage-stats:provider-options-changed', {
+            detail: { providerId: id },
+          }),
+        )
+        const payload = await fetchJson(
+          '/api/usage-stats/account?provider=' + encodeURIComponent(id),
+          { headers: accountRequestHeaders() },
+        ).catch(() => null)
+        if (mounted && payload?.ok === true) setAccount(payload.account)
+      },
+      (state, failure) => {
+        if (!mounted) return
+        failedRef.current = state === 'error'
+        setSaveState(state)
+        setError(
+          state === 'error'
+            ? failure instanceof Error
+              ? failure.message
+              : String(failure)
+            : '',
+        )
+      },
+    )
+    saverRef.current = saver
+    failedRef.current = false
+    const request = async () => {
+      try {
+        await previousSave
+        if (!mounted) return
+        const [settings, balance] = await Promise.all([
+          fetchJson(
+            '/api/usage-stats/provider-options?provider=' +
+              encodeURIComponent(id),
+          ),
+          fetchJson(
+            '/api/usage-stats/account?provider=' + encodeURIComponent(id),
+            { headers: accountRequestHeaders() },
+          ).catch(() => null),
+        ])
+        if (!mounted) return
+        if (settings.ok !== true) throw new Error('settings unavailable')
+        optionRef.current = { ...EMPTY_PROVIDER_OPTION, ...settings.option }
+        setOption(optionRef.current)
+        setResolvedAdapter(settings.resolvedAdapter!)
+        setAccount(balance?.ok === true ? balance!.account : null)
+        setLoading(false)
+      } catch (e) {
+        if (mounted) setError(e instanceof Error ? e.message : String(e))
+      }
+    }
+    void request()
+    return () => {
+      mounted = false
+      void saver.flush()
+    }
+  }, [id, configured, expanded])
+  if (!configured || typeof id !== 'string' || id === '') return null
+  const h = (
+    name: string,
+    currentValue: string,
+    onChange: React.ChangeEventHandler<HTMLSelectElement>,
+    options: string[][],
+  ) =>
+    react.createElement(
+      'label',
+      {
+        className: 'usg_providerExtrasField',
+        key: name,
+      },
+      react.createElement('span', null, name),
+      react.createElement(
+        'select',
+        {
+          className: 'usg_providerExtrasControl',
+          value: currentValue,
+          onChange,
+          disabled: loading,
+        },
+        options.map(([value, text]) =>
+          react.createElement('option', { value, key: value }, text),
+        ),
+      ),
+    )
+  const change = (patch: Partial<ProviderOption>, immediate = false) => {
+    const next = { ...optionRef.current, ...patch }
+    optionRef.current = next
+    setOption(next)
+    saverRef.current?.schedule(next, immediate)
+  }
+  const flush = () => {
+    if (failedRef.current) saverRef.current?.schedule(optionRef.current, true)
+    else void saverRef.current?.flush()
+  }
+  const availableKinds = new Set(
+    (Array.isArray(account?.windows) ? account.windows : []).map(
+      (entry) => entry?.kind,
+    ),
+  )
+  const displayChoices = METRIC_CHOICES.filter(
+    ([value]) =>
+      value === 'auto' ||
+      value === 'balance' ||
+      availableKinds.size === 0 ||
+      availableKinds.has(value.slice(7)) ||
+      value === option.displayMetric,
+  )
+  return react.createElement(
+    'div',
+    { className: 'usg_providerExtras', 'data-provider-monitor-settings': id },
+    react.createElement(
+      'details',
+      {
+        onToggle: (e: React.SyntheticEvent<HTMLDetailsElement>) =>
+          setExpanded(e.currentTarget.open),
+      },
+      react.createElement(
+        'summary',
+        { className: 'usg_providerExtrasTitle' },
+        label('余额 / 额度显示配置', 'Balance / quota monitoring'),
+      ),
+      react.createElement(
+        'div',
+        { className: 'usg_providerExtrasGrid' },
+        h(
+          label('上游供应商协议覆盖', 'Upstream provider protocol override'),
+          option.adapter ?? '',
+          (e: React.ChangeEvent<HTMLSelectElement>) =>
+            change(
+              {
+                adapter: e.target.value === '' ? null : e.target.value,
+                ...(e.target.value === ''
+                  ? { usageBaseURL: null, credentialRef: null }
+                  : {}),
+              },
+              true,
+            ),
+          MONITOR_CHOICES,
+        ),
+        account?.mode === 'balance'
+          ? null
+          : h(
+              label('模型左侧显示', 'Show before model'),
+              option.displayMetric,
+              (e: React.ChangeEvent<HTMLSelectElement>) =>
+                change({ displayMetric: e.target.value }, true),
+              displayChoices,
+            ),
+        option.adapter === null
+          ? null
+          : react.createElement(
+              'label',
+              { className: 'usg_providerExtrasField' },
+              react.createElement(
+                'span',
+                null,
+                label(
+                  '余额接口 Base URL（可选）',
+                  'Quota API base URL (optional)',
+                ),
+              ),
+              react.createElement('input', {
+                className: 'usg_providerExtrasControl',
+                type: 'url',
+                placeholder: 'https://...',
+                disabled: loading,
+                value: option.usageBaseURL ?? '',
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                  change({ usageBaseURL: e.target.value || null }),
+                onBlur: flush,
+              }),
+            ),
+        option.adapter === null
+          ? null
+          : react.createElement(
+              'label',
+              { className: 'usg_providerExtrasField' },
+              react.createElement(
+                'span',
+                null,
+                label(
+                  '查询凭据引用（可选）',
+                  'Credential reference (optional)',
+                ),
+              ),
+              react.createElement('input', {
+                className: 'usg_providerExtrasControl',
+                type: 'text',
+                placeholder: 'PROVIDER_API_KEY',
+                disabled: loading,
+                value: option.credentialRef ?? '',
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                  change({ credentialRef: e.target.value || null }),
+                onBlur: flush,
+              }),
+            ),
+      ),
+      react.createElement(
+        'div',
+        { className: 'usg_providerExtrasActions' },
+        react.createElement(
+          'span',
+          { className: 'usg_providerExtrasStatus', role: 'status' },
+          saveState === 'waiting'
+            ? label('等待自动保存…', 'Waiting to save…')
+            : saveState === 'saving'
+              ? label('自动保存中…', 'Saving automatically…')
+              : saveState === 'saved'
+                ? label('已自动保存', 'Saved automatically')
+                : saveState === 'error'
+                  ? label(
+                      '自动保存失败；修改或离开输入框重试',
+                      'Autosave failed; edit or leave the field to retry',
+                    )
+                  : label('设置自动保存', 'Settings save automatically') +
+                    (resolvedAdapter ? ' · ' + resolvedAdapter : ''),
+        ),
+      ),
+      error &&
+        react.createElement(
+          'div',
+          { className: 'usg_providerExtrasError', role: 'alert' },
+          error,
+        ),
+    ),
+  )
+}
+/**
+ * Sidebar footer action: badge + floating panel with balance and usage.
+ * @param props - `wide` from the sidebar shell, `t` bound by the slot runtime.
+ */
+function UsageStatsPanel({
+  wide,
+  t,
+}: {
+  wide?: boolean
+  t?: (key: string) => string
+}) {
+  const translate: Translate = (key, params) =>
+    interpolate(t !== void 0 ? t(key) : key, params)
+  const [open, setOpen] = react.useState(false)
+  const [usage, setUsage] = react.useState<UsageView | null>(null)
+  const [usageError, setUsageError] = react.useState<string | null>(null)
+  const [selectedDay, setSelectedDay] = react.useState<string | null>(null)
+  const [viewMonth, setViewMonth] = react.useState(() => currentMonthKey())
+  const [providers, setProviders] = react.useState<ProviderView[]>([])
+  const [providersAuthoritative, setProvidersAuthoritative] =
+    react.useState(false)
+  const storageRef = react.useRef(browserStorage())
+  const [selectedProvider, setSelectedProvider] = react.useState(() =>
+    readSelectedProvider(storageRef.current),
+  )
+  const [followEnabled, setFollowEnabled] = react.useState(() =>
+    readFollowPreference(storageRef.current),
+  )
+  const [followTarget, setFollowTarget] = react.useState<FollowState>({
+    status: 'unavailable',
+  })
+  const [accountEpoch, setAccountEpoch] = react.useState(0)
+  const stopFollowRef = react.useRef<Stop | null>(null)
+  const services = react.useSyncExternalStore(
+    subscribeFollowServices,
+    getFollowServices,
+    getFollowServices,
+  )
+  const [account, setAccount] = react.useState<
+    AccountSnapshot | null | undefined
+  >(null)
+  const [accountLoading, setAccountLoading] = react.useState(false)
+  const [accountError, setAccountError] = react.useState<string | null>(null)
+  const [refreshedAt, setRefreshedAt] = react.useState<number | null>(null)
+  const mountedRef = react.useRef(true)
+  const usageLoaderRef = react.useRef<ReturnType<typeof createLoader> | null>(
+    null,
+  )
+  const accountLoaderRef = react.useRef<ReturnType<typeof createLoader> | null>(
+    null,
+  )
+  const layerRef = react.useRef<HTMLDivElement | null>(null)
+  const panelRef = react.useRef<HTMLDivElement | null>(null)
+  if (usageLoaderRef.current === null) usageLoaderRef.current = createLoader()
+  if (accountLoaderRef.current === null)
+    accountLoaderRef.current = createLoader()
+  const providerChoices = react.useMemo(
+    () => buildProviderChoices(providers),
+    [providers],
+  )
+  const providerPickerChoices = providerChoices
+  const followedProvider =
+    followEnabled &&
+    followTarget.service === services &&
+    followTarget.status === 'ready' &&
+    providerChoices.some((provider) => provider.id === followTarget.providerId)
+      ? followTarget.providerId
+      : null
+  const accountProvider = followedProvider ?? selectedProvider
+  const accountProviderRef = react.useRef(accountProvider)
+  accountProviderRef.current = accountProvider
+  const followStatus =
+    followTarget.service !== services
+      ? 'unavailable'
+      : followTarget.status === 'ready' && followedProvider === null
+        ? 'unmatched'
+        : followTarget.status
+  const selectedProviderInfo =
+    providerChoices.find((provider) => provider.id === accountProvider) ?? null
+  const toggleFollow = react.useCallback((enabled: boolean) => {
+    stopFollowRef.current?.()
+    stopFollowRef.current = null
+    accountLoaderRef.current!.start()
+    setAccountLoading(false)
+    setAccountEpoch((value) => value + 1)
+    setFollowTarget({ status: 'unavailable' })
+    setFollowEnabled(enabled)
+    writeFollowPreference(enabled, storageRef.current)
+  }, [])
+  react.useEffect(() => {
+    if (!followEnabled) return
+    const stop = watchSessionProvider(services, (value) =>
+      setFollowTarget({ ...value, service: services }),
+    )
+    stopFollowRef.current = stop
+    return () => {
+      stop()
+      if (stopFollowRef.current === stop) stopFollowRef.current = null
+    }
+  }, [followEnabled, services])
+  const selectProvider = react.useCallback(
+    (providerId: string) => {
+      toggleFollow(false)
+      const normalized = validStoredProvider(providerId)
+      setSelectedProvider(normalized)
+      writeSelectedProvider(normalized, storageRef.current)
+    },
+    [toggleFollow],
+  )
+  const closePanel = react.useCallback(() => {
+    // Re-assert the last visible choice at the explicit close boundary. This
+    // keeps the X action stable even when storage was temporarily unavailable
+    // during an earlier provider-selection event.
+    if (selectedProvider !== null)
+      writeSelectedProvider(selectedProvider, storageRef.current)
+    setOpen(false)
+  }, [selectedProvider])
+  const loadUsage = react.useCallback(() => {
+    const seq = usageLoaderRef.current!.start()
+    setUsageError(null)
+    fetchJson('/api/usage-stats/usage')
+      .then((payload) => {
+        if (!mountedRef.current || !usageLoaderRef.current!.isCurrent(seq))
+          return
+        if (payload.ok !== true) {
+          setUsageError(payload.message ?? 'usage aggregation failed')
+          return
+        }
+        setUsage(payload)
+        setRefreshedAt(Date.now())
+      })
+      .catch((error) => {
+        if (!mountedRef.current || !usageLoaderRef.current!.isCurrent(seq))
+          return
+        setUsageError(error instanceof Error ? error.message : String(error))
+      })
+  }, [])
+  const loadProviders = react.useCallback(async () => {
+    try {
+      const payload = await fetchJson('/api/usage-stats/providers')
+      if (!mountedRef.current) return null
+      const list = authoritativeProviderList(payload)
+      if (list === null) return null
+      setProviders(list)
+      setProvidersAuthoritative(true)
+      return list
+    } catch {
+      return null
+    }
+  }, [])
+  const selectProviderChoice = selectProvider
+  const loadAccount = react.useCallback(
+    (
+      providerId: string | null,
+      force = false,
+      activity: string | null = null,
+    ) => {
+      const seq = accountLoaderRef.current!.start()
+      setAccountLoading(true)
+      setAccountError(null)
+      const target = providerId
+      if (target === null) {
+        setAccountLoading(false)
+        setAccountError('no providers')
+        return
+      }
+      const activityQuery = activity === 'detail' ? '&activity=detail' : ''
+      const query = `?provider=${encodeURIComponent(target)}${force ? '&refresh=1' : ''}${activityQuery}`
+      fetchJson(`/api/usage-stats/account${query}`, {
+        headers: accountRequestHeaders(),
+      })
+        .then((payload) => {
+          if (
+            !mountedRef.current ||
+            !accountLoaderRef.current!.isCurrent(seq) ||
+            target !== accountProviderRef.current
+          )
+            return
+          if (payload.ok !== true) {
+            setAccountError(payload.message ?? 'account fetch failed')
+            return
+          }
+          setAccount(payload.account)
+          setRefreshedAt(payload.account?.fetchedAt ?? Date.now())
+        })
+        .catch((error) => {
+          if (
+            !mountedRef.current ||
+            !accountLoaderRef.current!.isCurrent(seq) ||
+            target !== accountProviderRef.current
+          )
+            return
+          setAccountError(
+            error instanceof Error ? error.message : String(error),
+          )
+        })
+        .finally(() => {
+          if (
+            mountedRef.current &&
+            accountLoaderRef.current!.isCurrent(seq) &&
+            target === accountProviderRef.current
+          )
+            setAccountLoading(false)
+        })
+    },
+    [],
+  )
+  react.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+  // The shared footer-actions host lays full-width registrations out in a
+  // row. Let those actions wrap onto separate lines for #21 without
+  // changing the row main axis used by sibling plugins (#82). Walking up
+  // avoids depending on the host's hashed CSS-module class. Existing
+  // column/wrap layouts are left untouched, and our inline wrap override
+  // is restored on unmount.
+  react.useEffect(() => {
+    let host = layerRef.current?.parentElement ?? null
+    for (let depth = 0; host !== null && depth < 3; depth += 1) {
+      if (window.getComputedStyle(host).display.includes('flex')) break
+      host = host.parentElement
+    }
+    if (host === null) return void 0
+    return enableFooterActionWrapping(host)
+  }, [])
+  // Utility-popover dismissal: the panel is portaled to document.body, so
+  // use capture-phase pointerdown + composedPath rather than DOM ancestry.
+  react.useEffect(() => {
+    if (!open) return void 0
+    const onPointerDown = (event: PointerEvent) => {
+      const path =
+        typeof event.composedPath === 'function' ? event.composedPath() : []
+      if (
+        shouldDismissPanel(
+          path,
+          event.target,
+          layerRef.current,
+          panelRef.current,
+        )
+      )
+        setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [open])
+  // Keep exactly one valid provider selected across independent provider
+  // and subscription responses. DeepSeek remains the initial preference.
+  react.useEffect(() => {
+    if (!providersAuthoritative) return
+    setSelectedProvider((current) =>
+      reconcileSelectedProvider(current, providerChoices, storageRef.current),
+    )
+  }, [providerChoices, providersAuthoritative])
+  react.useEffect(() => {
+    if (!open) return
+    loadUsage()
+    loadProviders()
+    const usageTimer = window.setInterval(loadUsage, 60000)
+    const providerTimer = window.setInterval(loadProviders, 300000)
+    return () => {
+      window.clearInterval(usageTimer)
+      window.clearInterval(providerTimer)
+    }
+  }, [open, loadUsage, loadProviders])
+  react.useEffect(() => {
+    if (!open) return void 0
+    const next = Date.parse(
+      selectedProviderInfo?.pricingWindow?.nextTransitionAt ?? '',
+    )
+    if (!Number.isFinite(next)) return void 0
+    const delay = Math.max(0, next - Date.now()) + 1000
+    const timer = window.setTimeout(
+      loadProviders,
+      Math.min(delay, 2_147_000_000),
+    )
+    return () => window.clearTimeout(timer)
+  }, [
+    open,
+    loadProviders,
+    selectedProviderInfo?.pricingWindow?.nextTransitionAt,
+  ])
+  // Fetch the selected account for BOTH the panel and the collapsed
+  // sidebar badge. The server owns the adaptive upstream schedule; this
+  // pre-existing shared panel path only re-reads that cache every five
+  // minutes (no refresh=1), and marks an open detail view as active.
+  react.useEffect(() => {
+    if (accountProvider === null) return
+    const activity = open ? 'detail' : null
+    loadAccount(accountProvider, false, activity)
+    const cacheTimer = window.setInterval(
+      () => loadAccount(accountProvider, false, activity),
+      300000,
+    )
+    return () => {
+      window.clearInterval(cacheTimer)
+    }
+  }, [accountProvider, loadAccount, open, accountEpoch])
+  const dayMap = react.useMemo(() => {
+    const map = new Map()
+    if (usage !== null && Array.isArray(usage.days)) {
+      for (const day of usage.days) map.set(day.date, day)
+    }
+    return map
+  }, [usage])
+  // Drop a stale selection when refreshed data no longer has that day.
+  react.useEffect(() => {
+    if (selectedDay !== null && !dayMap.has(selectedDay)) setSelectedDay(null)
+  }, [dayMap, selectedDay])
+  // Never browse past the current month.
+  react.useEffect(() => {
+    const current = currentMonthKey()
+    if (viewMonth > current) setViewMonth(current)
+  }, [viewMonth])
+  const heat = react.useMemo(() => {
+    // viewMonth is `YYYY-MM` with a 1-based month; the builder wants 0-based.
+    const [year, monthOneBased] = viewMonth.split('-').map(Number)
+    return buildMonthHeatmap(dayMap, year, monthOneBased - 1)
+  }, [dayMap, viewMonth])
+  const stats = react.useMemo(() => {
+    if (usage === null || !Array.isArray(usage.days)) return null
+    const today = todayKey()
+    const month = today.slice(0, 7)
+    let todayEntry = null
+    let dayTokens = 0
+    let monthTokens = 0
+    let total = usage.total?.tokens ?? 0
+    for (const day of usage.days) {
+      if (day.date === today) {
+        dayTokens = day.tokens ?? 0
+        todayEntry = day
+      }
+      if (day.date.startsWith(month)) monthTokens += day.tokens ?? 0
+    }
+    return {
+      dayTokens,
+      monthTokens,
+      total,
+      todayHit: todayEntry?.cacheHitRate ?? null,
+    }
+  }, [usage])
+  const recent = react.useMemo(() => {
+    // Last 14 CALENDAR days (not "last 14 recorded days"): days without
+    // usage inside the window are omitted from the list.
+    if (usage === null || !Array.isArray(usage.days)) return []
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 13)
+    const cutoffKey = dayKeyOf(cutoff)
+    return usage.days
+      .filter((day) => day.date >= cutoffKey && day.date <= todayKey())
+      .reverse()
+  }, [usage])
+  const sessionCostRows = react.useMemo(
+    () => buildSessionCostRows(usage?.sessions, 20, accountProvider),
+    [usage, accountProvider],
+  )
+  const selectedEntry =
+    selectedDay !== null ? (dayMap.get(selectedDay) ?? null) : null
+  const budgetRows =
+    usage?.budgets === null || usage?.budgets === void 0
+      ? []
+      : (
+          [
+            ['daily', usage.budgets.daily],
+            ['monthly', usage.budgets.monthly],
+          ] as [string, BudgetWindow][]
+        )
+          .map(([period, window]) => ({
+            period,
+            window,
+            text: budgetWindowText(period, window, translate),
+          }))
+          .filter((entry) => entry.text !== null)
+  // Keep the sidebar entry label-only; account values live in the
+  // model readout, quota hover preview and full detail panel.
+  const badgeLabel = translate('panel.badge')
+  const retry = () => {
+    loadUsage()
+    loadProviders()
+    if (accountProvider !== null)
+      loadAccount(accountProvider, true, open ? 'detail' : null)
+  }
+  const updatedLabel =
+    refreshedAt === null
+      ? ''
+      : translate('panel.updatedAt', {
+          time: new Date(refreshedAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        })
+  return react_jsx_runtime.jsxs('div', {
+    ref: layerRef,
+    className: wide ? S.layer : `${S.layer} ${S.rail}`,
+    children: [
+      // Portal the panel to document.body: sidebar-scoped theme tokens
+      // (e.g. glass skins that set light label colors for a dark sidebar)
+      // would otherwise leak into the panel and clash with its
+      // overlay surface from the global scope (#17).
+      open &&
+        react_dom.createPortal(
+          react_jsx_runtime.jsxs('section', {
+            ref: panelRef,
+            className: S.panel,
+            'data-usage-stats-panel': true,
+            'aria-label': translate('panel.title'),
+            children: [
+              react_jsx_runtime.jsxs('header', {
+                className: S.header,
+                children: [
+                  react_jsx_runtime.jsxs('div', {
+                    className: S.headerLeft,
+                    children: [
+                      react_jsx_runtime.jsx(IconData, { size: 16 }),
+                      react_jsx_runtime.jsx('span', {
+                        className: S.title,
+                        children: translate('panel.title'),
+                      }),
+                    ],
+                  }),
+                  react_jsx_runtime.jsxs('div', {
+                    className: S.headerActions,
+                    children: [
+                      react_jsx_runtime.jsx(Tooltip, {
+                        label: translate('action.refresh'),
+                        side: 'bottom',
+                        delayMs: 500,
+                        children: react_jsx_runtime.jsx('button', {
+                          type: 'button',
+                          className: S.iconButton,
+                          'aria-label': translate('action.refresh'),
+                          onClick: retry,
+                          children: react_jsx_runtime.jsx(IconRefresh, {
+                            size: 14,
+                          }),
+                        }),
+                      }),
+                      react_jsx_runtime.jsx(Tooltip, {
+                        label: translate('action.close'),
+                        side: 'bottom',
+                        delayMs: 500,
+                        children: react_jsx_runtime.jsx('button', {
+                          type: 'button',
+                          className: S.iconButton,
+                          'aria-label': translate('action.close'),
+                          onClick: closePanel,
+                          children: react_jsx_runtime.jsx(IconClose, {
+                            size: 14,
+                          }),
+                        }),
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              react_jsx_runtime.jsxs('div', {
+                className: S.body,
+                children: [
+                  selectedEntry !== null
+                    ? react_jsx_runtime.jsx(DayDetail, {
+                        day: selectedEntry,
+                        translate,
+                        onBack: () => setSelectedDay(null),
+                      })
+                    : react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+                        children: [
+                          react_jsx_runtime.jsx('section', {
+                            className: S.section,
+                            children: react_jsx_runtime.jsx('h3', {
+                              className: S.sectionTitle,
+                              children: translate('account.title'),
+                            }),
+                          }),
+                          react_jsx_runtime.jsxs('div', {
+                            className: S.note,
+                            children: [
+                              react_jsx_runtime.jsxs('label', {
+                                children: [
+                                  react_jsx_runtime.jsx('input', {
+                                    type: 'checkbox',
+                                    checked: followEnabled,
+                                    'aria-label': translate('follow.label'),
+                                    onChange: (
+                                      event: React.ChangeEvent<HTMLInputElement>,
+                                    ) => toggleFollow(event.target.checked),
+                                  }),
+                                  translate('follow.label'),
+                                ],
+                              }),
+                              followEnabled &&
+                                react_jsx_runtime.jsx('p', {
+                                  'data-follow-status': followStatus,
+                                  children: translate(`follow.${followStatus}`),
+                                }),
+                            ],
+                          }),
+                          react_jsx_runtime.jsx(ProviderPicker, {
+                            providers: providerPickerChoices,
+                            selectedProvider: accountProvider,
+                            onSelect: selectProviderChoice,
+                            translate,
+                          }),
+                          tariffWindowText(
+                            selectedProviderInfo?.pricingWindow,
+                            Date.now(),
+                            translate,
+                          ) !== ''
+                            ? react_jsx_runtime.jsx('p', {
+                                className: S.pricingWindow,
+                                'data-tariff':
+                                  selectedProviderInfo?.pricingWindow?.tariff ??
+                                  '',
+                                children: tariffWindowText(
+                                  selectedProviderInfo?.pricingWindow,
+                                  Date.now(),
+                                  translate,
+                                ),
+                              })
+                            : null,
+                          selectedProviderInfo === null
+                            ? react_jsx_runtime.jsx('p', {
+                                className: S.note,
+                                children: translate('account.loading'),
+                              })
+                            : react_jsx_runtime.jsx('div', {
+                                className: S.accountGrid,
+                                children: react_jsx_runtime.jsx(
+                                  ProviderAccountCard,
+                                  {
+                                    provider: selectedProviderInfo,
+                                    account:
+                                      account?.id === accountProvider
+                                        ? account
+                                        : null,
+                                    accountLoading,
+                                    accountError,
+                                    translate,
+                                    onRetry: () =>
+                                      loadAccount(
+                                        accountProvider,
+                                        true,
+                                        'detail',
+                                      ),
+                                  },
+                                  selectedProviderInfo.id,
+                                ),
+                              }),
+                          react_jsx_runtime.jsx('section', {
+                            className: S.section,
+                            children: react_jsx_runtime.jsx('h3', {
+                              className: S.sectionTitle,
+                              children: translate('usage.title'),
+                            }),
+                          }),
+                          stats === null && usageError === null
+                            ? react_jsx_runtime.jsx('p', {
+                                className: S.note,
+                                children: translate('usage.loading'),
+                              })
+                            : null,
+                          usageError !== null
+                            ? react_jsx_runtime.jsxs('div', {
+                                className: S.error,
+                                children: [
+                                  react_jsx_runtime.jsx('span', {
+                                    children: translate('usage.error', {
+                                      message: usageError,
+                                    }),
+                                  }),
+                                  react_jsx_runtime.jsx('button', {
+                                    type: 'button',
+                                    className: S.retry,
+                                    onClick: loadUsage,
+                                    children: translate('action.retry'),
+                                  }),
+                                ],
+                              })
+                            : null,
+                          stats !== null &&
+                            react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+                              children: [
+                                react_jsx_runtime.jsxs('div', {
+                                  className: S.statsRow,
+                                  children: [
+                                    react_jsx_runtime.jsxs('div', {
+                                      className: S.stat,
+                                      children: [
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statValue,
+                                          children: fmt(stats.dayTokens),
+                                        }),
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statLabel,
+                                          children: translate('usage.today'),
+                                        }),
+                                      ],
+                                    }),
+                                    react_jsx_runtime.jsxs('div', {
+                                      className: S.stat,
+                                      children: [
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statValue,
+                                          children: fmt(stats.monthTokens),
+                                        }),
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statLabel,
+                                          children: translate('usage.month'),
+                                        }),
+                                      ],
+                                    }),
+                                    react_jsx_runtime.jsxs('div', {
+                                      className: S.stat,
+                                      children: [
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statValue,
+                                          children: fmt(stats.total),
+                                        }),
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.statLabel,
+                                          children: translate('usage.total'),
+                                        }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                                react_jsx_runtime.jsx('p', {
+                                  className: S.hitCaption,
+                                  children: react_jsx_runtime.jsxs(
+                                    react_jsx_runtime.Fragment,
+                                    {
+                                      children: [
+                                        translate('usage.hit.today'),
+                                        ': ',
+                                        react_jsx_runtime.jsx('b', {
+                                          children: fmtHit(stats.todayHit),
+                                        }),
+                                      ],
+                                    },
+                                  ),
+                                }),
+                                ...budgetRows.map((entry) =>
+                                  react_jsx_runtime.jsx(
+                                    'p',
+                                    {
+                                      className: S.hitCaption,
+                                      'data-budget-period': entry.period,
+                                      'data-budget-level': entry.window.level,
+                                      children: entry.text,
+                                    },
+                                    entry.period,
+                                  ),
+                                ),
+                              ],
+                            }),
+                          usage !== null &&
+                            usageError === null &&
+                            react_jsx_runtime.jsxs('section', {
+                              className: S.section,
+                              children: [
+                                react_jsx_runtime.jsxs('div', {
+                                  className: S.heatHeader,
+                                  children: [
+                                    react_jsx_runtime.jsx('h3', {
+                                      className: S.sectionTitle,
+                                      children: translate('usage.heatmap'),
+                                    }),
+                                    react_jsx_runtime.jsxs('div', {
+                                      className: S.monthNav,
+                                      children: [
+                                        react_jsx_runtime.jsx('button', {
+                                          type: 'button',
+                                          className: S.navButton,
+                                          'aria-label':
+                                            translate('action.prevMonth'),
+                                          onClick: () =>
+                                            setViewMonth((month) =>
+                                              shiftMonth(month, -1),
+                                            ),
+                                          children: react_jsx_runtime.jsx(
+                                            IconChevronLeft,
+                                            { size: 12 },
+                                          ),
+                                        }),
+                                        react_jsx_runtime.jsx('span', {
+                                          className: S.monthTitle,
+                                          children: monthLabelOf(
+                                            viewMonth,
+                                            translate,
+                                          ),
+                                        }),
+                                        react_jsx_runtime.jsx('button', {
+                                          type: 'button',
+                                          className: S.navButton,
+                                          'aria-label':
+                                            translate('action.nextMonth'),
+                                          disabled:
+                                            viewMonth >= currentMonthKey(),
+                                          onClick: () =>
+                                            setViewMonth((month) =>
+                                              shiftMonth(month, 1),
+                                            ),
+                                          children: react_jsx_runtime.jsx(
+                                            IconChevronRight,
+                                            { size: 12 },
+                                          ),
+                                        }),
+                                        viewMonth !== currentMonthKey() &&
+                                          react_jsx_runtime.jsx('button', {
+                                            type: 'button',
+                                            className: S.todayButton,
+                                            onClick: () =>
+                                              setViewMonth(currentMonthKey()),
+                                            children: translate('action.today'),
+                                          }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                                react_jsx_runtime.jsx(MonthHeatmap, {
+                                  heat,
+                                  translate,
+                                  selectedKey: selectedDay,
+                                  onSelect: setSelectedDay,
+                                }),
+                              ],
+                            }),
+                          usage !== null &&
+                            usageError === null &&
+                            react_jsx_runtime.jsx(ProviderUsageBreakdown, {
+                              days: usage.days,
+                              month: viewMonth,
+                              translate,
+                            }),
+                          recent.length > 0 &&
+                            react_jsx_runtime.jsxs('section', {
+                              className: S.section,
+                              children: [
+                                react_jsx_runtime.jsx('h3', {
+                                  className: S.sectionTitle,
+                                  children: translate('usage.recent'),
+                                }),
+                                react_jsx_runtime.jsx('div', {
+                                  className: S.days,
+                                  children: recent.map((day) => {
+                                    const maxRecent = Math.max(
+                                      ...recent.map((d) => d.tokens ?? 0),
+                                      1,
+                                    )
+                                    return react_jsx_runtime.jsxs(
+                                      'button',
+                                      {
+                                        type: 'button',
+                                        className: S.day,
+                                        onClick: () => setSelectedDay(day.date),
+                                        children: [
+                                          react_jsx_runtime.jsx('span', {
+                                            className: S.dayDate,
+                                            children: dayLabel(
+                                              day.date,
+                                              translate,
+                                            ),
+                                          }),
+                                          react_jsx_runtime.jsx('span', {
+                                            className: S.dayTokens,
+                                            children: fmt(day.tokens ?? 0),
+                                          }),
+                                          react_jsx_runtime.jsx('span', {
+                                            className: S.dayHit,
+                                            children: fmtHit(day.cacheHitRate),
+                                          }),
+                                          react_jsx_runtime.jsx('div', {
+                                            className: S.dayBar,
+                                            style: {
+                                              width: `${Math.max(4, Math.round((100 * (day.tokens ?? 0)) / maxRecent))}%`,
+                                            },
+                                          }),
+                                        ],
+                                      },
+                                      day.date,
+                                    )
+                                  }),
+                                }),
+                              ],
+                            }),
+                          sessionCostRows.length > 0 &&
+                            react_jsx_runtime.jsxs('section', {
+                              className: S.section,
+                              children: [
+                                react_jsx_runtime.jsx('h3', {
+                                  className: S.sectionTitle,
+                                  children: translate('sessionCost.title'),
+                                }),
+                                react_jsx_runtime.jsx('div', {
+                                  className: S.sessionCosts,
+                                  children: sessionCostRows.map((session) =>
+                                    react_jsx_runtime.jsxs(
+                                      'div',
+                                      {
+                                        className: S.sessionCostRow,
+                                        'data-session-cost':
+                                          session.sessionId ?? '',
+                                        children: [
+                                          react_jsx_runtime.jsxs('div', {
+                                            className: S.sessionCostMain,
+                                            children: [
+                                              react_jsx_runtime.jsx('span', {
+                                                className: S.sessionCostTitle,
+                                                title:
+                                                  session.title ??
+                                                  session.sessionId ??
+                                                  '',
+                                                children:
+                                                  session.title ??
+                                                  session.sessionId ??
+                                                  translate(
+                                                    'sessionCost.untitled',
+                                                  ),
+                                              }),
+                                              sessionCostMeta(
+                                                session,
+                                                translate,
+                                              ) !== ''
+                                                ? react_jsx_runtime.jsx(
+                                                    'span',
+                                                    {
+                                                      className:
+                                                        S.sessionCostMeta,
+                                                      children: sessionCostMeta(
+                                                        session,
+                                                        translate,
+                                                      ),
+                                                    },
+                                                  )
+                                                : null,
+                                            ],
+                                          }),
+                                          react_jsx_runtime.jsx('span', {
+                                            className: S.sessionCostAmount,
+                                            children: fmtCurrency(
+                                              session.estimatedCost,
+                                              session.currency,
+                                            ),
+                                          }),
+                                        ],
+                                      },
+                                      session.sessionId ??
+                                        `${session.title ?? 'session'}-${session.lastAt ?? ''}`,
+                                    ),
+                                  ),
+                                }),
+                              ],
+                            }),
+                          react_jsx_runtime.jsxs('section', {
+                            className: S.section,
+                            children: [
+                              react_jsx_runtime.jsx('h3', {
+                                className: S.sectionTitle,
+                                children: translate('export.title'),
+                              }),
+                              react_jsx_runtime.jsxs('div', {
+                                className: S.exportLinks,
+                                children: [
+                                  react_jsx_runtime.jsx('a', {
+                                    className: S.exportLink,
+                                    href: '/api/usage-stats/export/daily.csv',
+                                    download: 'dsh-usage-daily.csv',
+                                    'data-export-format': 'daily-csv',
+                                    children: translate('export.dailyCsv'),
+                                  }),
+                                  react_jsx_runtime.jsx('a', {
+                                    className: S.exportLink,
+                                    href: '/api/usage-stats/export/sessions.csv',
+                                    download: 'dsh-usage-sessions.csv',
+                                    'data-export-format': 'sessions-csv',
+                                    children: translate('export.sessionsCsv'),
+                                  }),
+                                  react_jsx_runtime.jsx('a', {
+                                    className: S.exportLink,
+                                    href: '/api/usage-stats/export.json',
+                                    download: 'dsh-usage-stats.json',
+                                    'data-export-format': 'json',
+                                    children: translate('export.json'),
+                                  }),
+                                ],
+                              }),
+                            ],
+                          }),
+                          updatedLabel !== '' &&
+                            react_jsx_runtime.jsx('p', {
+                              className: S.footerNote,
+                              children: updatedLabel,
+                            }),
+                        ],
+                      }),
+                ],
+              }),
+            ],
+          }),
+          document.body,
+        ),
+      react_jsx_runtime.jsx(QuotaHoverCard, {
+        provider: selectedProviderInfo,
+        account,
+        accountLoading,
+        accountError,
+        translate,
+        disabled: open,
+        onRetry: () => loadAccount(accountProvider, true, 'detail'),
+        children: react_jsx_runtime.jsxs('button', {
+          type: 'button',
+          className: S.badge,
+          'data-usage-stats-badge': true,
+          'aria-label': badgeLabel,
+          'aria-expanded': open,
+          onClick: () => setOpen((value) => !value),
+          children: [
+            react_jsx_runtime.jsx(IconData, { size: wide ? 16 : 18 }),
+            wide &&
+              react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+                children: [
+                  react_jsx_runtime.jsx('span', {
+                    className: S.badgeLabel,
+                    children: badgeLabel,
+                  }),
+                ],
+              }),
+          ],
+        }),
+      }),
+    ],
+  })
+}
+/** Cache-only quota preview: reuse the account card without another fetch path. */
+function QuotaHoverCard({
+  provider,
+  account,
+  accountLoading,
+  accountError,
+  translate,
+  onRetry,
+  disabled,
+  children,
+  className = S.footerButtons,
+  placement = 'side',
+}: CardProps & {
+  disabled?: boolean
+  children?: React.ReactNode
+  className?: string
+  placement?: string
+}) {
+  const [position, setPosition] = react.useState<{
+    left: number
+    bottom: number
+  } | null>(null)
+  const triggerRef = react.useRef<HTMLDivElement | null>(null)
+  const previewRef = react.useRef<HTMLDivElement | null>(null)
+  const closeTimer = react.useRef<number | null>(null)
+  const previewId = react.useId()
+  const enabled =
+    !disabled &&
+    provider != null &&
+    account?.id === provider.id &&
+    account.mode === 'subscription' &&
+    Array.isArray(account.windows) &&
+    account.windows.length > 0
+  const cancelClose = () => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+  const close = () => {
+    cancelClose()
+    setPosition(null)
+  }
+  const show = () => {
+    cancelClose()
+    if (!enabled || triggerRef.current === null) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPosition({
+      left: Math.max(
+        12,
+        Math.min(
+          placement === 'above' ? rect.right - 360 : rect.right + 8,
+          window.innerWidth - 372,
+        ),
+      ),
+      bottom: Math.max(
+        12,
+        Math.min(
+          window.innerHeight -
+            (placement === 'above' ? rect.top - 8 : rect.bottom),
+          window.innerHeight - 36,
+        ),
+      ),
+    })
+  }
+  const leave = (event: React.MouseEvent | React.FocusEvent) => {
+    const next = event.relatedTarget as Node | null
+    if (
+      next &&
+      typeof next.nodeType === 'number' &&
+      (triggerRef.current?.contains(next) || previewRef.current?.contains(next))
+    )
+      return
+    cancelClose()
+    closeTimer.current = setTimeout(() => setPosition(null), 150)
+  }
+  react.useEffect(() => {
+    close()
+  }, [enabled, provider?.id])
+  react.useEffect(() => () => cancelClose(), [])
+  react.useEffect(() => {
+    if (position === null) return
+    const dismiss = (event: Event & { key?: string }) => {
+      if (event.type === 'keydown' && event.key !== 'Escape') return
+      close()
+    }
+    document.addEventListener('keydown', dismiss)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      document.removeEventListener('keydown', dismiss)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [position])
+  return react_jsx_runtime.jsxs('div', {
+    className,
+    ref: triggerRef,
+    onMouseEnter: show,
+    onMouseLeave: leave,
+    onFocus: show,
+    onBlur: leave,
+    onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+      if (!previewRef.current?.contains(event.target as Node)) close()
+    },
+    'aria-controls': enabled && position !== null ? previewId : void 0,
+    children: [
+      children,
+      enabled &&
+        position !== null &&
+        react_dom.createPortal(
+          react_jsx_runtime.jsx('section', {
+            id: previewId,
+            ref: previewRef,
+            className: `${S.panel} usg_quotaPreview`,
+            'data-usage-stats-quota-preview': true,
+            'aria-label': translate('account.title'),
+            style: {
+              ...position,
+              top: 'auto',
+              width: 360,
+              maxHeight: `min(420px, calc(100vh - ${position.bottom + 12}px))`,
+              overflowY: 'auto',
+              padding: 12,
+            },
+            onMouseEnter: cancelClose,
+            onMouseLeave: leave,
+            onFocus: cancelClose,
+            onBlur: leave,
+            children: react_jsx_runtime.jsx(ProviderAccountCard, {
+              provider,
+              account,
+              accountLoading,
+              accountError,
+              translate,
+              onRetry,
+              showSource: false,
+            }),
+          }),
+          document.body,
+        ),
+    ],
+  })
+}
+function providerMark(provider: ProviderView) {
+  const known: Record<string, string> = {
+    'deepseek-official': 'DS',
+    'deepseek-account': 'DS',
+    deepseek: 'DS',
+    'opencode-go': 'GO',
+    ollama: 'OL',
+    openrouter: 'OR',
+    commandcode: 'CC',
+    'commandcode-goat': 'CC',
+    moonshotai: 'K',
+    'moonshotai-cn': 'K',
+    kimi: 'K',
+    'kimi-coding': 'K',
+    zai: 'Z',
+    'zai-coding-cn': 'Z',
+    // Providers Hub（旧名 dsh-codearts-auth）的反代 route。必须显式列出：
+    // 默认回退取展示名前两个字母，而「CodeArts Agent」与「CodeBuddy (腾讯)」
+    // 都会落到同一个 "CO"，多张卡片看起来像同一个 provider。
+    // 按 Providers Hub 渠道名补充显示简称；这张表不决定账号归属，
+    // 也不意味着当前官方包已提供跨插件余额服务。
+    codearts: 'CA',
+    buddy: 'CB',
+    workbuddy: 'WB',
+    lobsterai: 'LA',
+    qoder: 'QD',
+    qodercn: 'QN',
+    trae: 'TR',
+    cline: 'CL',
+    loomy: 'LM',
+    raccoon: 'RC',
+    zcode: 'ZC',
+    // dsh-providers-hub 0.2.x 新增渠道。同样必须显式列出：这些渠道的
+    // 展示名两两撞车（AutoClaw / AutoClaw 国际版 都是 "AU"，Accio /
+    // AStudio 都是 "AS"），不登记就会退化成同一个简称。
+    // `opencode` 故意不在此表：宿主不通过 creditBalance 暴露它。
+    minimaxintl: 'MX',
+    gemini: 'GM',
+    officeace: 'OA',
+    accio: 'AC',
+    astudio: 'AU',
+    autoclaw: 'AW',
+    autoclawintl: 'AX',
+    modelscope: 'MS',
+  }
+  return (
+    known[provider.id] ??
+    known[provider.adapter!] ??
+    String(provider.displayName ?? provider.id)
+      .replace(/[^A-Za-z0-9]/g, '')
+      .slice(0, 2)
+      .toUpperCase()
+  )
+}
+/** Balance-mode body rendered inside the shared provider account frame. */
+function BalanceContent({
+  balance,
+  state,
+  message,
+  translate,
+  onRetry,
+}: {
+  balance: CreditBalance | null | undefined
+  state: string
+  message?: string
+  translate: Translate
+  onRetry?: () => void
+}) {
+  if (state === 'loading')
+    return react_jsx_runtime.jsx('p', {
+      className: S.quotaEmpty,
+      children: translate('balance.loading'),
+    })
+  if (state === 'ok' && balance == null) return null
+  if (state === 'blocked')
+    return react_jsx_runtime.jsx('p', {
+      className: S.quotaEmpty,
+      children: translate('account.blocked'),
+    })
+  if (state === 'unsupported')
+    return react_jsx_runtime.jsx('p', {
+      className: S.quotaEmpty,
+      children: translate('balance.unsupported'),
+    })
+  if (state === 'signed-out')
+    return react_jsx_runtime.jsx('p', {
+      className: S.quotaEmpty,
+      children: translate('balance.signedOut'),
+    })
+  if (state === 'no-credential')
+    return react_jsx_runtime.jsx('p', {
+      className: S.quotaEmpty,
+      children: translate('balance.noCredential', { ref: message ?? '' }),
+    })
+  if (state === 'error')
+    return react_jsx_runtime.jsxs('div', {
+      className: S.error,
+      children: [
+        react_jsx_runtime.jsx('span', {
+          children: translate('balance.error', { message: message ?? '' }),
+        }),
+        react_jsx_runtime.jsx('button', {
+          type: 'button',
+          className: S.retry,
+          onClick: onRetry,
+          children: translate('action.retry'),
+        }),
+      ],
+    })
+  const wallets = Array.isArray(balance?.wallets)
+    ? balance!.wallets.filter(
+        (wallet) =>
+          wallet !== null &&
+          typeof wallet === 'object' &&
+          (wallet.currency === 'CNY' || wallet.currency === 'USD') &&
+          typeof wallet.remaining === 'number' &&
+          Number.isFinite(wallet.remaining),
+      )
+    : null
+  if (wallets !== null) {
+    if (wallets.length === 0)
+      return react_jsx_runtime.jsx('p', {
+        className: S.quotaEmpty,
+        children: translate('balance.empty'),
+      })
+    return react_jsx_runtime.jsx('div', {
+      className: S.balanceRows,
+      children: wallets.map((wallet) =>
+        react_jsx_runtime.jsxs(
+          'div',
+          {
+            className: S.balanceRow,
+            children: [
+              react_jsx_runtime.jsxs('span', {
+                children: [
+                  translate('balance.remaining'),
+                  ' · ',
+                  wallet.currency,
+                ],
+              }),
+              react_jsx_runtime.jsxs('span', {
+                children: [
+                  fmtCurrency(wallet.remaining, wallet.currency),
+                  wallet.breakdown?.toppedUp !== void 0 ||
+                  wallet.breakdown?.granted !== void 0
+                    ? react_jsx_runtime.jsx('small', {
+                        className: S.accountPlan,
+                        children: translate('balance.walletBreakdown', {
+                          toppedUp: fmtCurrency(
+                            wallet.breakdown?.toppedUp ?? 0,
+                            wallet.currency,
+                          ),
+                          granted: fmtCurrency(
+                            wallet.breakdown?.granted ?? 0,
+                            wallet.currency,
+                          ),
+                        }),
+                      })
+                    : null,
+                ],
+              }),
+            ],
+          },
+          wallet.currency,
+        ),
+      ),
+    })
+  }
+  return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+    children: [
+      react_jsx_runtime.jsxs('div', {
+        className: S.balanceMain,
+        children: [
+          react_jsx_runtime.jsx('span', {
+            className: S.balanceAmount,
+            children: balance!.unlimited
+              ? '∞'
+              : fmtCurrency(balance!.remaining, balance!.currency),
+          }),
+          react_jsx_runtime.jsx('span', {
+            className: S.accountPlan,
+            children: translate('balance.remaining'),
+          }),
+        ],
+      }),
+      react_jsx_runtime.jsx('div', {
+        className: S.balanceRows,
+        children: [
+          { value: balance!.used, label: translate('balance.used') },
+          { value: balance!.total, label: translate('balance.total') },
+          {
+            value: balance!.breakdown?.toppedUp,
+            label: translate('balance.toppedUp'),
+          },
+          {
+            value: balance!.breakdown?.granted,
+            label: translate('balance.granted'),
+          },
+        ]
+          .filter((row) => row.value !== null && row.value !== void 0)
+          .map((row, index) =>
+            react_jsx_runtime.jsxs(
+              'div',
+              {
+                className: S.balanceRow,
+                children: [
+                  react_jsx_runtime.jsx('span', { children: row.label }),
+                  react_jsx_runtime.jsx('span', {
+                    children: fmtCurrency(row.value, balance!.currency),
+                  }),
+                ],
+              },
+              `${row.label}-${index}`,
+            ),
+          ),
+      }),
+    ],
+  })
+}
+/** Provider selector shared by monetary and subscription account modes. */
+function ProviderPicker({
+  providers,
+  selectedProvider,
+  onSelect,
+  disabled = false,
+  translate,
+}: {
+  providers: ProviderView[]
+  selectedProvider: string | null
+  onSelect: (id: string) => void
+  disabled?: boolean
+  translate: Translate
+}) {
+  if (providers.length === 0) return null
+  return react_jsx_runtime.jsxs('label', {
+    className: S.providerPicker,
+    children: [
+      react_jsx_runtime.jsx('span', {
+        className: S.providerPickerLabel,
+        children: translate('account.provider'),
+      }),
+      react_jsx_runtime.jsx('select', {
+        className: S.providerSelect,
+        value: selectedProvider ?? '',
+        disabled,
+        'aria-label': translate('account.provider'),
+        onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+          onSelect(event.target.value),
+        children: providers.map((provider) =>
+          react_jsx_runtime.jsx(
+            'option',
+            {
+              value: provider.id,
+              children: providerChoiceLabel(provider, translate),
+            },
+            provider.id,
+          ),
+        ),
+      }),
+    ],
+  })
+}
+function subscriptionStatusLabel(status: string, translate: Translate) {
+  if (status === 'ok') return translate('subscription.status.ok')
+  if (status === 'signed-out') return translate('account.status.signedOut')
+  if (status === 'not-configured')
+    return translate('subscription.status.notConfigured')
+  if (status === 'unauthorized')
+    return translate('subscription.status.unauthorized')
+  if (status === 'rate-limited')
+    return translate('subscription.status.rateLimited')
+  if (status === 'invalid-response')
+    return translate('account.status.invalidResponse')
+  if (status === 'blocked') return translate('account.status.blocked')
+  if (status === 'unsupported') return translate('account.status.unsupported')
+  if (status === 'unknown') return translate('account.status.unknown')
+  return translate('subscription.status.unavailable')
+}
+function quotaLabel(
+  kind: string,
+  translate: Translate,
+  label?: string,
+  windowSeconds?: number,
+) {
+  // Standard duration windows share names across providers, even when an
+  // upstream label contains an account prefix or a raw duration like 168h.
+  const durationKind = {
+    18000: 'session',
+    86400: 'daily',
+    604800: 'weekly',
+    2419200: 'monthly',
+    2592000: 'monthly',
+    2678400: 'monthly',
+  }[windowSeconds as 18000 | 86400 | 604800 | 2419200 | 2592000 | 2678400]
+  const tail =
+    typeof label === 'string'
+      ? label.split(' / ').at(-1)!.trim().toLowerCase()
+      : ''
+  const labelKind = /^(5\s*(h|hours?|小时)|5[- ]hour(?: window)?)$/.test(tail)
+    ? 'session'
+    : /^(168\s*h|周额度|每周(?:窗口)?|weekly(?: window)?)$/.test(tail)
+      ? 'weekly'
+      : /^(720\s*h|月额度|每月(?:窗口)?|monthly(?: window)?)$/.test(tail)
+        ? 'monthly'
+        : null
+  const period =
+    durationKind ??
+    (['session', 'daily', 'weekly', 'monthly'].includes(kind)
+      ? kind
+      : labelKind)
+  if (period) return translate('subscription.window.' + period)
+  // Keep real package names for non-duration quotas (e.g. CodeArts credits).
+  if (typeof label === 'string' && label.trim() !== '') return label.trim()
+  if (kind === 'quota') return translate('subscription.window.quota')
+  if (kind === 'billing') return translate('subscription.window.mcp')
+  return kind
+}
+function durationLabel(totalMinutes: number, translate: Translate) {
+  if (totalMinutes >= 1440) {
+    const days = Math.floor(totalMinutes / 1440)
+    const hours = Math.floor((totalMinutes % 1440) / 60)
+    return translate('duration.daysHours', { days, hours })
+  }
+  if (totalMinutes >= 60) {
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    return translate('duration.hoursMinutes', { hours, minutes })
+  }
+  return translate('duration.minutes', { minutes: totalMinutes })
+}
+function formatResetCountdown(
+  resetsAt: unknown,
+  now: number,
+  translate: Translate,
+) {
+  if (typeof resetsAt !== 'string') return ''
+  const date = new Date(resetsAt)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMs = date.getTime() - now
+  if (diffMs <= 0) return translate('subscription.resetDue')
+  const totalMinutes = Math.max(1, Math.ceil(diffMs / 60000))
+  return translate('subscription.resets', {
+    time: durationLabel(totalMinutes, translate),
+  })
+}
+function formatQuotaNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+function quotaResetDate(resetsAt: unknown) {
+  if (typeof resetsAt !== 'string' || !Number.isFinite(Date.parse(resetsAt)))
+    return ''
+  // Match Custom Instruction Manager: UI locale, browser-local timezone,
+  // numeric Chinese date and native medium date/time for English.
+  const lang =
+    typeof document === 'object' ? document.documentElement?.lang : ''
+  const locale =
+    typeof lang === 'string' && lang.toLowerCase().startsWith('en')
+      ? 'en'
+      : 'zh'
+  const options: Intl.DateTimeFormatOptions =
+    locale === 'zh'
+      ? {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hourCycle: 'h23',
+        }
+      : { dateStyle: 'medium', timeStyle: 'medium' }
+  return new Intl.DateTimeFormat(locale, options).format(new Date(resetsAt))
+}
+function tariffWindowText(
+  window: ProviderView['pricingWindow'],
+  now: number,
+  translate: Translate,
+) {
+  if (window === null || window === void 0 || typeof window !== 'object')
+    return ''
+  if (window.tariff !== 'peak' && window.tariff !== 'offPeak') return ''
+  const baseKey = window.tariff === 'peak' ? 'pricing.peak' : 'pricing.offPeak'
+  if (typeof window.nextTransitionAt !== 'string') return translate(baseKey)
+  const next = Date.parse(window.nextTransitionAt)
+  if (!Number.isFinite(next) || next <= now) return ''
+  const totalMinutes = Math.max(1, Math.ceil((next - now) / 60000))
+  const time = durationLabel(totalMinutes, translate)
+  return translate(
+    window.tariff === 'peak'
+      ? 'pricing.peakCountdown'
+      : 'pricing.offPeakCountdown',
+    { time },
+  )
+}
+function provenanceLabel(provenance: unknown, translate: Translate) {
+  if (provenance === 'official') return translate('account.provenance.official')
+  if (provenance === 'provider') return translate('account.provenance.provider')
+  if (provenance === 'configured')
+    return translate('account.provenance.configured')
+  if (provenance === 'experimental')
+    return translate('account.provenance.experimental')
+  return translate('account.provenance.unknown')
+}
+function healthTimeLabel(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+}
+function healthAgeLabel(value: unknown, translate: Translate) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+    return ''
+  return durationLabel(Math.floor(value / 60000), translate)
+}
+function useAccountAge(account: AccountSnapshot | null | undefined) {
+  const [, setTick] = react.useState(0)
+  const now = Date.now()
+  const received = react.useRef({ account, at: now })
+  if (received.current.account !== account)
+    received.current = { account, at: now }
+  // Prefer the success timestamp: opening a cached hover must not restart its age.
+  const age =
+    typeof account?.lastSuccessAt === 'number' &&
+    Number.isFinite(account.lastSuccessAt)
+      ? Math.max(0, now - account.lastSuccessAt)
+      : typeof account?.ageMs === 'number' &&
+          Number.isFinite(account.ageMs) &&
+          account.ageMs >= 0
+        ? account.ageMs + Math.max(0, now - received.current.at)
+        : null
+  react.useEffect(() => {
+    if (age === null) return
+    const timer = window.setInterval(() => setTick((value) => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [account, age === null])
+  return age
+}
+function AccountHealth({
+  account,
+  translate,
+  ageMs,
+  showSource,
+}: {
+  account: AccountSnapshot | null | undefined
+  translate: Translate
+  ageMs: number | null
+  showSource: boolean
+}) {
+  if (account === null || account === void 0 || typeof account !== 'object')
+    return null
+  const rows = []
+  const attempted = healthTimeLabel(account.lastAttemptAt)
+  const succeeded = healthTimeLabel(account.lastSuccessAt)
+  if (ageMs !== null && ageMs > 300000) {
+    if (attempted !== '') rows.push(['account.health.lastAttempt', attempted])
+    if (succeeded !== '') rows.push(['account.health.lastSuccess', succeeded])
+  }
+  if (showSource)
+    rows.push([
+      'account.health.provenance',
+      provenanceLabel(account.provenance, translate),
+    ])
+  if (rows.length === 0) return null
+  return react_jsx_runtime.jsx('dl', {
+    className: S.accountHealth,
+    children: rows.flatMap(([label, value]) => [
+      react_jsx_runtime.jsx(
+        'dt',
+        { children: translate(label) },
+        `${label}-term`,
+      ),
+      react_jsx_runtime.jsx('dd', { children: value }, `${label}-value`),
+    ]),
+  })
+}
+/** Percentage-window body rendered inside the shared provider account frame. */
+function SubscriptionContent({
+  provider,
+  translate,
+}: {
+  provider: AccountSnapshot
+  translate: Translate
+}) {
+  const windows = Array.isArray(provider.windows) ? provider.windows : []
+  const status =
+    typeof provider.status === 'string' ? provider.status : 'unavailable'
+  const emptyMessage =
+    status === 'not-configured'
+      ? translate('subscription.notConfigured', {
+          refs: Array.isArray(provider.missingCredentials)
+            ? provider.missingCredentials.join(' + ')
+            : '',
+        })
+      : status === 'unauthorized'
+        ? translate('subscription.unauthorized')
+        : status === 'rate-limited'
+          ? translate('subscription.rateLimited')
+          : status === 'invalid-response'
+            ? translate('account.invalidResponse')
+            : status === 'blocked'
+              ? translate('account.blocked')
+              : status === 'unsupported'
+                ? translate('balance.unsupported')
+                : translate('subscription.unavailable')
+  return (status === 'ok' || provider.stale === true) && windows.length > 0
+    ? react_jsx_runtime.jsx('div', {
+        className: S.quotaList,
+        children: windows.map((window, index) => {
+          // 没有百分比分母的窗口（上游只给汇总额，如 MiniMax 的
+          // credit/details）显示绝对剩余值，**不画进度条** —— 画一条
+          // 凭空推算的进度比不画更误导。
+          const hasUsed =
+            typeof window.usedPercent === 'number' &&
+            Number.isFinite(window.usedPercent)
+          const hasRemaining =
+            typeof window.remainingPercent === 'number' &&
+            Number.isFinite(window.remainingPercent)
+          const hasPercent = hasUsed || hasRemaining
+          const remaining = Math.max(
+            0,
+            Math.min(
+              100,
+              hasRemaining
+                ? window.remainingPercent!
+                : hasUsed
+                  ? 100 - window.usedPercent!
+                  : 0,
+            ),
+          )
+          const hasAmount =
+            typeof window.amount === 'number' &&
+            Number.isFinite(window.amount) &&
+            window.amount >= 0
+          const valueText = hasPercent
+            ? formatQuotaNumber(remaining) + '%'
+            : hasAmount
+              ? formatQuotaNumber(window.amount!)
+              : '—'
+          const label = quotaLabel(
+            window.kind,
+            translate,
+            window.label,
+            window.windowSeconds,
+          )
+          const countdown = formatResetCountdown(
+            window.resetsAt,
+            Date.now(),
+            translate,
+          )
+          const resetDate = quotaResetDate(window.resetsAt)
+          return react_jsx_runtime.jsxs(
+            'div',
+            {
+              className: S.quotaRow,
+              children: [
+                react_jsx_runtime.jsxs('div', {
+                  className: S.quotaMeta,
+                  children: [
+                    react_jsx_runtime.jsx('span', {
+                      className: S.quotaLabel,
+                      children: label,
+                    }),
+                    react_jsx_runtime.jsxs('div', {
+                      className: S.quotaReset,
+                      children: [
+                        react_jsx_runtime.jsx('span', {
+                          className: S.quotaValue,
+                          children: valueText,
+                        }),
+                        countdown !== ''
+                          ? react_jsx_runtime.jsx('span', {
+                              children: ' · ' + countdown,
+                            })
+                          : null,
+                        resetDate !== ''
+                          ? react_jsx_runtime.jsx('time', {
+                              dateTime: window.resetsAt,
+                              children: ' · ' + resetDate,
+                            })
+                          : null,
+                      ],
+                    }),
+                  ],
+                }),
+                // ⚠️ role="progressbar" 需要 aria-valuenow；无分母的窗口没有
+                // 可声明的进度，故整条轨道都不渲染。
+                hasPercent
+                  ? react_jsx_runtime.jsx('div', {
+                      className: S.quotaTrack,
+                      role: 'progressbar',
+                      'aria-label': label,
+                      'aria-valuemin': 0,
+                      'aria-valuemax': 100,
+                      'aria-valuenow': remaining,
+                      children: react_jsx_runtime.jsx('div', {
+                        className: S.quotaFill,
+                        style: { width: `${remaining}%` },
+                      }),
+                    })
+                  : null,
+              ],
+              // ⚠️ key 不能只用 kind：codearts 一个 provider 往往有多个
+              // 同 kind 的包（总积分包 / 按需积分包），会互相顶掉。
+            },
+            `${String(window.account ?? '')}/${window.kind}/${window.label ?? ''}/${index}`,
+          )
+        }),
+      })
+    : react_jsx_runtime.jsx('p', {
+        className: S.quotaEmpty,
+        children: emptyMessage,
+      })
+}
+/**
+ * The single account-card interface. Provider identity/colour/status live
+ * in the shared frame; only the inner balance/quota data varies by mode.
+ */
+function ProviderAccountCard({
+  provider,
+  account,
+  accountLoading,
+  accountError,
+  translate,
+  onRetry,
+  showSource = true,
+}: CardProps) {
+  const ageMs = useAccountAge(account)
+  const mode = account?.mode ?? provider!.accountMode ?? 'balance'
+  const subscriptionMode = mode === 'subscription'
+  const status =
+    accountLoading && account === null
+      ? 'loading'
+      : (account?.status ?? 'unavailable')
+  const statusText =
+    ageMs !== null && (status === 'ok' || account?.stale === true)
+      ? ageMs < 300000
+        ? translate('subscription.status.ok')
+        : healthAgeLabel(ageMs, translate)
+      : account?.stale === true
+        ? translate('account.status.stale')
+        : status === 'loading'
+          ? translate('account.status.loading')
+          : status === 'blocked'
+            ? translate('account.status.blocked')
+            : status === 'unsupported'
+              ? translate('account.status.unsupported')
+              : subscriptionStatusLabel(status, translate)
+  const subtitle =
+    account?.plan ??
+    (subscriptionMode
+      ? translate('subscription.planUnknown')
+      : translate('account.balanceMode'))
+  const balanceState =
+    accountLoading && account === null
+      ? 'loading'
+      : accountError !== null
+        ? 'error'
+        : status === 'signed-out'
+          ? 'signed-out'
+          : status === 'not-configured'
+            ? 'no-credential'
+            : status === 'blocked'
+              ? 'blocked'
+              : status === 'unsupported'
+                ? 'unsupported'
+                : status === 'ok' ||
+                    (account?.balance !== null && account?.balance !== void 0)
+                  ? 'ok'
+                  : 'error'
+  const balanceMessage =
+    accountError ?? account?.missingCredentials?.[0] ?? status
+  const reasonText = diagnosticReasonText(account?.reason, translate)
+  // A subscription may also know the monetary pool behind its windows:
+  // Command Code reports plan credits next to the 5-hour/weekly caps, so
+  // the account view keeps the balance card and the quota bars together
+  // instead of forcing a choice between them.
+  const credits = subscriptionMode ? (account?.balance ?? null) : null
+  const quotaWindows = Array.isArray(account?.windows) ? account.windows : []
+  return react_jsx_runtime.jsxs('article', {
+    className: S.accountCard,
+    'data-provider': provider!.id,
+    'data-adapter': provider!.adapter ?? provider!.accountMode ?? '',
+    'data-account-mode': mode,
+    'data-account-stale': account?.stale === true,
+    children: [
+      react_jsx_runtime.jsxs('div', {
+        className: S.accountHead,
+        children: [
+          react_jsx_runtime.jsx('span', {
+            className: S.accountMark,
+            'aria-hidden': true,
+            children: providerMark(provider!),
+          }),
+          react_jsx_runtime.jsxs('span', {
+            className: S.accountIdentity,
+            children: [
+              react_jsx_runtime.jsx('span', {
+                className: S.accountName,
+                children: provider!.displayName,
+              }),
+              react_jsx_runtime.jsx('span', {
+                className: S.accountPlan,
+                children: subtitle,
+              }),
+            ],
+          }),
+          react_jsx_runtime.jsx('span', {
+            className: S.accountStatus,
+            'data-status': status,
+            children: statusText,
+          }),
+        ],
+      }),
+      subscriptionMode
+        ? accountError !== null
+          ? react_jsx_runtime.jsxs('div', {
+              className: S.error,
+              children: [
+                react_jsx_runtime.jsx('span', {
+                  children: translate('subscription.error', {
+                    message: accountError,
+                  }),
+                }),
+                react_jsx_runtime.jsx('button', {
+                  type: 'button',
+                  className: S.retry,
+                  onClick: onRetry,
+                  children: translate('action.retry'),
+                }),
+              ],
+            })
+          : accountLoading && account === null
+            ? react_jsx_runtime.jsx('p', {
+                className: S.quotaEmpty,
+                children: translate('subscription.loading'),
+              })
+            : react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+                children: [
+                  credits !== null
+                    ? react_jsx_runtime.jsx(BalanceContent, {
+                        balance: credits,
+                        state: 'ok',
+                        message: null,
+                        translate,
+                        onRetry,
+                      })
+                    : null,
+                  // An account with a balance but no readable window must not
+                  // also claim that the provider returned no quota windows.
+                  quotaWindows.length > 0 || credits === null
+                    ? react_jsx_runtime.jsx(SubscriptionContent, {
+                        provider: account ?? {
+                          status: 'unavailable',
+                          windows: [],
+                        },
+                        translate,
+                      })
+                    : null,
+                ],
+              })
+        : react_jsx_runtime.jsx(BalanceContent, {
+            balance: account?.balance ?? null,
+            state: balanceState,
+            message: balanceMessage,
+            translate,
+            onRetry,
+          }),
+      react_jsx_runtime.jsx(AccountHealth, {
+        account,
+        translate,
+        ageMs,
+        showSource,
+      }),
+      reasonText !== null && status !== 'ok'
+        ? react_jsx_runtime.jsx('p', {
+            className: S.note,
+            children: reasonText,
+          })
+        : null,
+    ],
+  })
+}
+/** Group normalized usage rows by the exact route and full model key. */
+function buildProviderUsage(
+  days: DayUsage[] | undefined,
+  month: string | null = null,
+) {
+  const providers = new Map<
+    string,
+    {
+      key: string
+      tokens: number
+      models: Map<string, { key: string; tokens: number }>
+    }
+  >()
+  const compare = (
+    a: { tokens: number; key: string },
+    b: { tokens: number; key: string },
+  ) => b.tokens - a.tokens || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  for (const day of Array.isArray(days) ? days : []) {
+    if (
+      month !== null &&
+      (typeof day?.date !== 'string' || day.date.slice(0, 7) !== month)
+    )
+      continue
+    for (const row of Array.isArray(day?.models) ? day.models : []) {
+      if (
+        typeof row?.model !== 'string' ||
+        !Number.isFinite(row.tokens) ||
+        row.tokens < 0
+      )
+        continue
+      const slash = row.model.indexOf('/')
+      const providerId = slash > 0 ? row.model.slice(0, slash) : 'unknown'
+      let provider = providers.get(providerId)
+      if (provider === void 0) {
+        provider = { key: providerId, tokens: 0, models: new Map() }
+        providers.set(providerId, provider)
+      }
+      let model = provider.models.get(row.model)
+      if (model === void 0) {
+        model = { key: row.model, tokens: 0 }
+        provider.models.set(row.model, model)
+      }
+      model.tokens += row.tokens
+      provider.tokens += row.tokens
+    }
+  }
+  return [...providers.values()]
+    .map((provider) => ({
+      ...provider,
+      models: [...provider.models.values()].sort(compare),
+    }))
+    .sort(compare)
+}
+function ProviderUsageBreakdown({
+  days,
+  month,
+  translate,
+}: {
+  days: DayUsage[] | undefined
+  month: string
+  translate: Translate
+}) {
+  const [scope, setScope] = react.useState('month')
+  const providers = react.useMemo(
+    () => buildProviderUsage(days, scope === 'month' ? month : null),
+    [days, month, scope],
+  )
+  return react_jsx_runtime.jsxs('section', {
+    className: S.section,
+    'data-provider-usage': true,
+    children: [
+      react_jsx_runtime.jsx('h3', {
+        className: S.sectionTitle,
+        children: translate('usage.byProvider'),
+      }),
+      react_jsx_runtime.jsxs('select', {
+        className: S.usageScope,
+        value: scope,
+        'aria-label': translate('usage.scope'),
+        onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
+          setScope(event.target.value === 'all' ? 'all' : 'month'),
+        children: [
+          react_jsx_runtime.jsx('option', {
+            value: 'month',
+            children: `${translate('usage.selectedMonth')} ${month}`,
+          }),
+          react_jsx_runtime.jsx('option', {
+            value: 'all',
+            children: translate('usage.allRecords'),
+          }),
+        ],
+      }),
+      react_jsx_runtime.jsx('p', {
+        className: S.note,
+        children: translate('usage.providerHint'),
+      }),
+      providers.length === 0
+        ? react_jsx_runtime.jsx('p', {
+            className: S.note,
+            children: translate('usage.noProviderUsage'),
+          })
+        : providers.map((provider) =>
+            react_jsx_runtime.jsxs(
+              'details',
+              {
+                className: S.providerUsage,
+                'data-usage-provider': provider.key,
+                children: [
+                  react_jsx_runtime.jsxs('summary', {
+                    className: S.providerSummary,
+                    children: [
+                      react_jsx_runtime.jsx('span', {
+                        title: provider.key,
+                        children:
+                          provider.key === 'unknown'
+                            ? translate('usage.unknownProvider')
+                            : provider.key,
+                      }),
+                      react_jsx_runtime.jsx('span', {
+                        className: S.modelTokens,
+                        children: ` · ${fmt(provider.tokens)} Token`,
+                      }),
+                    ],
+                  }),
+                  ...provider.models.map((model) =>
+                    react_jsx_runtime.jsxs(
+                      'div',
+                      {
+                        className: S.modelRow,
+                        'data-usage-model': model.key,
+                        children: [
+                          react_jsx_runtime.jsxs('div', {
+                            className: S.modelHead,
+                            children: [
+                              react_jsx_runtime.jsx('span', {
+                                className: S.modelName,
+                                title: model.key,
+                                children: modelLabelOf(model.key, translate),
+                              }),
+                              react_jsx_runtime.jsx('span', {
+                                className: S.modelTokens,
+                                children: fmt(model.tokens),
+                              }),
+                            ],
+                          }),
+                          react_jsx_runtime.jsx('div', {
+                            className: S.modelBarTrack,
+                            children: react_jsx_runtime.jsx('div', {
+                              className: S.modelBar,
+                              style: {
+                                width: `${provider.tokens > 0 ? (100 * model.tokens) / provider.tokens : 0}%`,
+                              },
+                            }),
+                          }),
+                        ],
+                      },
+                      model.key,
+                    ),
+                  ),
+                ],
+              },
+              provider.key,
+            ),
+          ),
+    ],
+  })
+}
+/**
+ * One day's per-model breakdown. `day` is the wire day entry carrying
+ * `tokens`, `cacheHitRate`, and `models` (descending by tokens).
+ */
+function DayDetail({
+  day,
+  translate,
+  onBack,
+}: {
+  day: DayUsage
+  translate: Translate
+  onBack: () => void
+}) {
+  const models = Array.isArray(day.models) ? day.models : []
+  const totalTokens = day.tokens ?? 0
+  return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
+    children: [
+      react_jsx_runtime.jsxs('div', {
+        className: S.detailHeader,
+        children: [
+          react_jsx_runtime.jsx('button', {
+            type: 'button',
+            className: S.back,
+            'aria-label': translate('usage.back'),
+            onClick: onBack,
+            children: react_jsx_runtime.jsx(IconChevronLeft, { size: 14 }),
+          }),
+          react_jsx_runtime.jsx('span', {
+            className: S.detailDate,
+            children: dayLabel(day.date, translate),
+          }),
+          react_jsx_runtime.jsx('span', {
+            className: S.detailHit,
+            children: `${translate('usage.hitRate')} ${fmtHit(day.cacheHitRate)}`,
+          }),
+        ],
+      }),
+      react_jsx_runtime.jsx('p', {
+        className: S.detailSummary,
+        children: `${translate('usage.total')} ${fmt(totalTokens)} · ${translate('usage.input')} ${fmt(day.inputTokens ?? 0)} · ${translate('usage.output')} ${fmt(day.outputTokens ?? 0)} · ${translate('usage.cacheRead')} ${fmt(day.cacheReadTokens ?? 0)}`,
+      }),
+      react_jsx_runtime.jsx('div', {
+        className: S.days,
+        children:
+          models.length === 0
+            ? react_jsx_runtime.jsx('p', {
+                className: S.note,
+                children: translate('usage.noModels'),
+              })
+            : models.map((model) => {
+                const share =
+                  totalTokens > 0
+                    ? Math.max(
+                        3,
+                        Math.round((100 * (model.tokens ?? 0)) / totalTokens),
+                      )
+                    : 0
+                return react_jsx_runtime.jsxs(
+                  'div',
+                  {
+                    className: S.modelRow,
+                    children: [
+                      react_jsx_runtime.jsxs('div', {
+                        className: S.modelHead,
+                        children: [
+                          react_jsx_runtime.jsx('span', {
+                            className: S.modelName,
+                            title: model.model,
+                            children: modelLabelOf(model.model, translate),
+                          }),
+                          react_jsx_runtime.jsx('span', {
+                            className: S.modelTokens,
+                            children: fmt(model.tokens ?? 0),
+                          }),
+                          react_jsx_runtime.jsx('span', {
+                            className: S.modelHit,
+                            children: fmtHit(model.cacheHitRate),
+                          }),
+                        ],
+                      }),
+                      react_jsx_runtime.jsx('div', {
+                        className: S.modelBarTrack,
+                        children: react_jsx_runtime.jsx('div', {
+                          className: S.modelBar,
+                          style: { width: `${share}%` },
+                        }),
+                      }),
+                      react_jsx_runtime.jsx('div', {
+                        className: S.modelMeta,
+                        children: `${translate('usage.input')} ${fmt(model.inputTokens ?? 0)} · ${translate('usage.output')} ${fmt(model.outputTokens ?? 0)} · ${translate('usage.cacheRead')} ${fmt(model.cacheReadTokens ?? 0)}`,
+                      }),
+                    ],
+                  },
+                  model.model,
+                )
+              }),
+      }),
+    ],
+  })
+}
+/**
+ * Codex-style blue calendar heatmap for one month: weekday header row,
+ * weeks as rows (Mon-first), padded with placeholders. Cells are buttons
+ * that select a day.
+ */
+function MonthHeatmap({
+  heat,
+  translate,
+  selectedKey,
+  onSelect,
+}: {
+  heat: ReturnType<typeof buildMonthHeatmap>
+  translate: Translate
+  selectedKey: string | null
+  onSelect?: (key: string) => void
+}) {
+  const select = typeof onSelect === 'function' ? onSelect : () => {}
+  const weekdayLabels = [
+    translate('weekday.mon'),
+    translate('weekday.tue'),
+    translate('weekday.wed'),
+    translate('weekday.thu'),
+    translate('weekday.fri'),
+    translate('weekday.sat'),
+    translate('weekday.sun'),
+  ]
+  return react_jsx_runtime.jsxs('div', {
+    className: S.heat,
+    children: [
+      react_jsx_runtime.jsxs('div', {
+        className: S.monthGrid,
+        children: [
+          react_jsx_runtime.jsx('div', {
+            className: S.weekHeader,
+            children: weekdayLabels.map((label) =>
+              react_jsx_runtime.jsx(
+                'span',
+                { className: S.weekLabel, children: label },
+                label,
+              ),
+            ),
+          }),
+          heat.weeks.map((week, weekIndex) =>
+            react_jsx_runtime.jsx(
+              'div',
+              {
+                className: S.heatRow,
+                children: week.map((cell, dayIndex) => {
+                  if (cell === null)
+                    return react_jsx_runtime.jsx(
+                      'span',
+                      { className: S.emptyCell, 'aria-hidden': true },
+                      `${weekIndex}-${dayIndex}`,
+                    )
+                  const style = cellColor(cell.tokens, heat.max)
+                  const hit =
+                    cell.hitRate === null || cell.hitRate === void 0
+                      ? ''
+                      : ` · ${translate('usage.hitRate')} ${cell.hitRate}%`
+                  const isToday = cell.key === todayKey()
+                  return react_jsx_runtime.jsx(
+                    'button',
+                    {
+                      type: 'button',
+                      className: `${S.cell}${isToday ? ` ${S.cellToday}` : ''}${selectedKey === cell.key ? ` ${S.cellSelected}` : ''}`,
+                      style: {
+                        background: style.background,
+                        color: style.color,
+                      },
+                      title: `${cell.key} · ${fmt(cell.tokens)} tokens${hit}`,
+                      'aria-label': `${cell.key} · ${fmt(cell.tokens)} tokens`,
+                      onClick: () => select(cell.key),
+                      children: react_jsx_runtime.jsx('span', {
+                        className: S.cellDay,
+                        children: cell.day,
+                      }),
+                    },
+                    cell.key,
+                  )
+                }),
+              },
+              weekIndex,
+            ),
+          ),
+        ],
+      }),
+      react_jsx_runtime.jsxs('div', {
+        className: S.legend,
+        children: [
+          react_jsx_runtime.jsx('span', {
+            children: translate('usage.legendLess'),
+          }),
+          [0.22, 0.42, 0.6, 0.8, 1].map((alpha, index) =>
+            react_jsx_runtime.jsx(
+              'span',
+              {
+                className: S.legendSwatch,
+                style: {
+                  background: `rgba(${BLUE_RGB[0]}, ${BLUE_RGB[1]}, ${BLUE_RGB[2]}, ${alpha})`,
+                },
+              },
+              index,
+            ),
+          ),
+          react_jsx_runtime.jsx('span', {
+            children: translate('usage.legendMore'),
+          }),
+        ],
+      }),
+    ],
+  })
+}
+/** `YYYY-MM-DD` → `MM-DD 周X` display label. */
+function dayLabel(key: string, translate: Translate) {
+  const [, month, day] = key.split('-')
+  const date = new Date(Number(key.slice(0, 4)), Number(month) - 1, Number(day))
+  const weekdays = [
+    translate('weekday.sun'),
+    translate('weekday.mon'),
+    translate('weekday.tue'),
+    translate('weekday.wed'),
+    translate('weekday.thu'),
+    translate('weekday.fri'),
+    translate('weekday.sat'),
+  ]
+  return `${month}-${day} ${weekdays[date.getDay()]}`
+}
+function monthName(month: number, translate: Translate) {
+  const names = translate('month.names').split(',')
+  return names[month] ?? String(month + 1)
+}
+/**
+ * Display label for a `provider/model` attribution key (the same model
+ * served by different providers must stay distinguishable).
+ */
+function modelLabelOf(key: string, translate: Translate) {
+  if (typeof key !== 'string') return ''
+  const slash = key.indexOf('/')
+  if (slash === -1) return key
+  const provider = key.slice(0, slash)
+  const model = key.slice(slash + 1)
+  const providerLabel =
+    provider === 'unknown' ? translate('usage.unknownModel') : provider
+  const modelLabel =
+    model === 'unknown' || model === ''
+      ? translate('usage.unknownModel')
+      : model
+  return `${providerLabel} · ${modelLabel}`
+}
+//#endregion
+//#region locales
+/** `usageStats` namespace dictionaries (the zh key set is the source of truth). */
+const NS = 'usageStats'
+const zh = {
+  'follow.label': '跟随当前会话',
+  'follow.ready': '已跟随当前主会话的模型供应商。',
+  'follow.loading': '正在确认当前会话的模型选择，暂保留手动卡片。',
+  'follow.unavailable': '跟随暂不可用，当前使用手动选择。',
+  'follow.unmatched': '当前会话的供应商未匹配，当前使用手动选择。',
+  'follow.noSession': '没有唯一的主会话，当前使用手动选择。',
+  'panel.title': '用量与余额',
+  'panel.badge': '用量/余额',
+  'panel.monthlyRemaining': '月剩余 {value}',
+  'panel.quotaWindowWarning': '部分订阅窗口剩余不超过 5%，请展开查看',
+  'account.title': '供应商账户',
+  'account.provider': '当前供应商',
+  'pricing.peak': '峰时',
+  'pricing.offPeak': '闲时',
+  'pricing.peakCountdown': '峰时 · {time} 后进入闲时',
+  'pricing.offPeakCountdown': '闲时 · {time} 后进入峰时',
+  'account.balanceMode': 'API 余额',
+  'account.loading': '正在加载供应商…',
+  'account.status.loading': '查询中',
+  'account.status.signedOut': '未登录',
+  'account.status.stale': '数据已过期',
+  'account.status.blocked': '已阻止',
+  'account.status.unsupported': '不支持余额',
+  'account.status.invalidResponse': '响应异常',
+  'account.status.unknown': '未知',
+  'account.invalidResponse': '供应商返回了无法识别的额度数据。',
+  'account.reason.dnsResolutionFailed': '无法解析供应商域名。',
+  'account.reason.allAddressesUnreachable': '已验证的网络地址均无法连接。',
+  'account.reason.upstreamNotJson': '上游返回的不是 JSON',
+  'account.reason.upstreamInvalidJson': '上游返回了无法解析的 JSON',
+  'account.reason.sub2apiBalanceShapeUnrecognized':
+    'Sub2API 余额接口返回了未识别的数据结构。',
+  'account.reason.timeout': '账户请求超时。',
+  'account.reason.rateLimited': '供应商限制了账户查询频率。',
+  'account.reason.unauthorized': '账户凭据未通过验证。',
+  'account.reason.upstreamTooLarge': '上游响应超过安全大小限制。',
+  'account.reason.upstreamInvalidResponse': '上游返回了无法识别的响应。',
+  'account.reason.blockedNetwork': '账户请求被本地网络安全策略阻止。',
+  'account.reason.noValidatedAddress': '没有可安全连接的供应商地址。',
+  'account.reason.unknown': '账户查询失败，未提供可安全展示的诊断信息。',
+  'account.health.lastAttempt': '上次尝试',
+  'account.health.lastSuccess': '上次成功',
+  'account.health.age': '数据年龄',
+  'account.health.provenance': '数据来源',
+  'account.provenance.official': '官方接口',
+  'account.provenance.provider': '供应商接口',
+  'account.provenance.configured': '自定义配置',
+  'account.provenance.experimental': '实验性探测',
+  'account.provenance.unknown': '未知',
+  'account.blocked':
+    '账户查询被本地安全策略阻止，请检查 HTTPS、同源和私网访问设置。',
+  'balance.title': '账户余额',
+  'balance.provider': '供应商',
+  'balance.noSchemeTag': '无余额接口',
+  'balance.unsupported': '该供应商没有公开的余额查询接口。',
+  'balance.total': '总余额',
+  'balance.remaining': '可用余额',
+  'balance.used': '已使用',
+  'balance.toppedUp': '充值余额',
+  'balance.granted': '赠送余额',
+  'balance.available': '可用',
+  'balance.unavailable': '不可用',
+  'balance.loading': '正在查询余额…',
+  'balance.noCredential': '未配置 {ref}（请编辑 ~/.dsh/.credentials.yaml）',
+  'balance.signedOut':
+    '尚未登录 DeepSeek Account。请先在 DSH Desktop 的账号设置中登录。',
+  'balance.empty': '当前账号没有可展示的余额钱包。',
+  'balance.walletBreakdown': '充值 {toppedUp} · 赠送 {granted}',
+  'balance.error': '余额获取失败：{message}',
+  'subscription.title': '订阅额度',
+  'subscription.loading': '正在查询订阅额度…',
+  'subscription.error': '订阅额度获取失败：{message}',
+  'subscription.status.ok': '实时',
+  'subscription.status.notConfigured': '未配置',
+  'subscription.status.unauthorized': '需重新登录',
+  'subscription.status.rateLimited': '请求受限',
+  'subscription.status.unavailable': '暂不可用',
+  'subscription.window.session': '5小时',
+  'subscription.window.daily': '每日',
+  'subscription.window.weekly': '每周',
+  'subscription.window.monthly': '每月',
+  'subscription.window.quota': '总额度',
+  'subscription.window.mcp': 'MCP 月度额度',
+  'subscription.used': '已用 {value}%',
+  'subscription.remaining': '剩余 {value}',
+  'subscription.resets': '{time}后重置',
+  'subscription.resetDue': '已到重置时间',
+  'duration.minutes': '{minutes} 分钟',
+  'duration.hoursMinutes': '{hours} 小时 {minutes} 分钟',
+  'duration.daysHours': '{days} 天 {hours} 小时',
+  'subscription.notConfigured': '配置 {refs} 后显示真实订阅比例。',
+  'subscription.unauthorized': '凭据已失效，请更新后重试。',
+  'subscription.rateLimited': '供应商暂时限制查询，请稍后重试。',
+  'subscription.unavailable': '供应商没有返回可识别的额度窗口。',
+  'subscription.planUnknown': '订阅计划',
+  'usage.title': 'Token 用量',
+  'usage.byProvider': '供应商与模型用量',
+  'usage.scope': '统计范围',
+  'usage.selectedMonth': '所选月份',
+  'usage.allRecords': '全部记录',
+  'usage.providerHint': '按实际路由分组，按 Token 用量降序排列；展开查看模型。',
+  'usage.noProviderUsage': '当前范围没有分模型数据。',
+  'usage.unknownProvider': '未知供应商',
+  'usage.today': '今日',
+  'usage.month': '本月',
+  'usage.total': '累计',
+  'usage.loading': '正在统计用量…',
+  'usage.error': '用量统计失败：{message}',
+  'usage.heatmap': '当月每日用量',
+  'usage.recent': '最近 14 天',
+  'usage.legendLess': '少',
+  'usage.legendMore': '多',
+  'usage.back': '返回',
+  'usage.hitRate': '缓存命中',
+  'usage.hit.today': '今日缓存命中率',
+  'usage.input': '输入',
+  'usage.output': '输出',
+  'usage.cacheRead': '缓存读',
+  'usage.unknownModel': '未知模型',
+  'usage.noModels': '这一天没有分模型数据。',
+  'sessionCost.title': '最近会话费用',
+  'sessionCost.untitled': '未命名会话',
+  'sessionCost.meta': '{tokens} Token · {models}',
+  'sessionCost.tokensOnly': '{tokens} Token',
+  'export.title': '安全导出',
+  'export.dailyCsv': '每日 CSV',
+  'export.sessionsCsv': '会话 CSV',
+  'export.json': '完整 JSON',
+  'budget.period.daily': '今日估算',
+  'budget.period.monthly': '本月估算',
+  'budget.level.normal': '正常',
+  'budget.level.warning': '接近预算',
+  'budget.level.critical': '已超预算',
+  'budget.level.unknown': '费用不完整',
+  'budget.summary': '{period}：{spent} / {limit} · {level}',
+  'month.year': '{year}年{month}',
+  'action.refresh': '刷新',
+  'action.retry': '重试',
+  'action.close': '关闭',
+  'action.prevMonth': '上个月',
+  'action.nextMonth': '下个月',
+  'action.today': '回到今天',
+  'panel.updatedAt': '更新于 {time}',
+  'weekday.mon': '一',
+  'weekday.tue': '二',
+  'weekday.wed': '三',
+  'weekday.thu': '四',
+  'weekday.fri': '五',
+  'weekday.sat': '六',
+  'weekday.sun': '日',
+  'month.names': '1月,2月,3月,4月,5月,6月,7月,8月,9月,10月,11月,12月',
+}
+const en = {
+  'follow.label': 'Follow current session',
+  'follow.ready': "Following the main session's confirmed model provider.",
+  'follow.loading':
+    'Checking the current selection; showing the manual account for now.',
+  'follow.unavailable': 'Follow is unavailable; using the manual selection.',
+  'follow.unmatched': 'No exact provider match; using the manual selection.',
+  'follow.noSession': 'No single main session; using the manual selection.',
+  'panel.title': 'Usage & Balance',
+  'panel.badge': 'Usage/Balance',
+  'panel.monthlyRemaining': 'Month left {value}',
+  'panel.quotaWindowWarning':
+    'A subscription window has 5% or less remaining; open the panel for details',
+  'account.title': 'Provider account',
+  'account.provider': 'Current provider',
+  'pricing.peak': 'Peak',
+  'pricing.offPeak': 'Off-peak',
+  'pricing.peakCountdown': 'Peak · off-peak in {time}',
+  'pricing.offPeakCountdown': 'Off-peak · peak in {time}',
+  'account.balanceMode': 'API balance',
+  'account.loading': 'Loading providers…',
+  'account.status.loading': 'Loading',
+  'account.status.signedOut': 'Signed out',
+  'account.status.stale': 'Stale data',
+  'account.status.blocked': 'Blocked',
+  'account.status.unsupported': 'Balance unsupported',
+  'account.status.invalidResponse': 'Invalid response',
+  'account.status.unknown': 'Unknown',
+  'account.invalidResponse': 'The provider returned unrecognized quota data.',
+  'account.reason.dnsResolutionFailed':
+    'The provider hostname could not be resolved.',
+  'account.reason.allAddressesUnreachable':
+    'None of the validated network addresses could be reached.',
+  'account.reason.upstreamNotJson': 'The upstream response was not JSON',
+  'account.reason.upstreamInvalidJson': 'The upstream returned unparsable JSON',
+  'account.reason.sub2apiBalanceShapeUnrecognized':
+    'The Sub2API balance endpoint returned an unrecognized data shape.',
+  'account.reason.timeout': 'The account request timed out.',
+  'account.reason.rateLimited': 'The provider rate limited account checks.',
+  'account.reason.unauthorized': 'The account credential was rejected.',
+  'account.reason.upstreamTooLarge':
+    'The upstream response exceeded the safety size limit.',
+  'account.reason.upstreamInvalidResponse':
+    'The upstream returned an unrecognized response.',
+  'account.reason.blockedNetwork':
+    'The account request was blocked by the local network policy.',
+  'account.reason.noValidatedAddress':
+    'No validated provider address was available.',
+  'account.reason.unknown':
+    'The account check failed without a safe diagnostic detail.',
+  'account.health.lastAttempt': 'Last attempt',
+  'account.health.lastSuccess': 'Last success',
+  'account.health.age': 'Data age',
+  'account.health.provenance': 'Source',
+  'account.provenance.official': 'Official API',
+  'account.provenance.provider': 'Provider API',
+  'account.provenance.configured': 'Configured',
+  'account.provenance.experimental': 'Experimental',
+  'account.provenance.unknown': 'Unknown',
+  'account.blocked':
+    'The account query was blocked by the local security policy. Check HTTPS, same-origin, and private-network settings.',
+  'balance.title': 'Account balance',
+  'balance.provider': 'Provider',
+  'balance.noSchemeTag': 'no balance API',
+  'balance.unsupported': 'This provider has no public balance interface.',
+  'balance.total': 'Total balance',
+  'balance.remaining': 'Available balance',
+  'balance.used': 'Used',
+  'balance.toppedUp': 'Topped up',
+  'balance.granted': 'Granted',
+  'balance.available': 'available',
+  'balance.unavailable': 'unavailable',
+  'balance.loading': 'Fetching balance…',
+  'balance.noCredential':
+    '{ref} is not configured (edit ~/.dsh/.credentials.yaml)',
+  'balance.signedOut':
+    'Not signed in to DeepSeek Account. Sign in from DSH Desktop account settings first.',
+  'balance.empty': 'This account has no displayable balance wallets.',
+  'balance.walletBreakdown': 'Topped up {toppedUp} · granted {granted}',
+  'balance.error': 'Balance fetch failed: {message}',
+  'subscription.title': 'Subscription usage',
+  'subscription.loading': 'Fetching subscription usage…',
+  'subscription.error': 'Subscription usage failed: {message}',
+  'subscription.status.ok': 'Live',
+  'subscription.status.notConfigured': 'Not configured',
+  'subscription.status.unauthorized': 'Sign in again',
+  'subscription.status.rateLimited': 'Rate limited',
+  'subscription.status.unavailable': 'Unavailable',
+  'subscription.window.session': '5 hours',
+  'subscription.window.daily': 'Daily',
+  'subscription.window.weekly': 'Weekly',
+  'subscription.window.monthly': 'Monthly',
+  'subscription.window.quota': 'Total quota',
+  'subscription.window.mcp': 'Monthly MCP quota',
+  'subscription.used': '{value}% used',
+  'subscription.remaining': '{value} remaining',
+  'subscription.resets': 'Resets in {time}',
+  'subscription.resetDue': 'Reset due',
+  'duration.minutes': '{minutes}m',
+  'duration.hoursMinutes': '{hours}h {minutes}m',
+  'duration.daysHours': '{days}d {hours}h',
+  'subscription.notConfigured':
+    'Configure {refs} to show live subscription usage.',
+  'subscription.unauthorized':
+    'The credential has expired; update it and retry.',
+  'subscription.rateLimited':
+    'The provider is rate limiting checks; retry later.',
+  'subscription.unavailable':
+    'The provider returned no recognizable quota windows.',
+  'subscription.planUnknown': 'Subscription plan',
+  'usage.title': 'Token usage',
+  'usage.byProvider': 'Usage by provider and model',
+  'usage.scope': 'Usage range',
+  'usage.selectedMonth': 'Selected month',
+  'usage.allRecords': 'All records',
+  'usage.providerHint':
+    'Exact routes, ordered by token usage. Expand to see models.',
+  'usage.noProviderUsage': 'No model usage in this range.',
+  'usage.unknownProvider': 'Unknown provider',
+  'usage.today': 'Today',
+  'usage.month': 'This month',
+  'usage.total': 'All time',
+  'usage.loading': 'Aggregating usage…',
+  'usage.error': 'Usage aggregation failed: {message}',
+  'usage.heatmap': 'Daily usage this month',
+  'usage.recent': 'Last 14 days',
+  'usage.legendLess': 'Less',
+  'usage.legendMore': 'More',
+  'usage.back': 'Back',
+  'usage.hitRate': 'Cache hit',
+  'usage.hit.today': "Today's cache hit rate",
+  'usage.input': 'Input',
+  'usage.output': 'Output',
+  'usage.cacheRead': 'Cache read',
+  'usage.unknownModel': 'Unknown model',
+  'usage.noModels': 'No per-model data for this day.',
+  'sessionCost.title': 'Recent session costs',
+  'sessionCost.untitled': 'Untitled session',
+  'sessionCost.meta': '{tokens} tokens · {models}',
+  'sessionCost.tokensOnly': '{tokens} tokens',
+  'export.title': 'Secret-free export',
+  'export.dailyCsv': 'Daily CSV',
+  'export.sessionsCsv': 'Sessions CSV',
+  'export.json': 'Full JSON',
+  'budget.period.daily': 'Today estimated',
+  'budget.period.monthly': 'This month estimated',
+  'budget.level.normal': 'Normal',
+  'budget.level.warning': 'Near budget',
+  'budget.level.critical': 'Over budget',
+  'budget.level.unknown': 'Incomplete cost',
+  'budget.summary': '{period}: {spent} / {limit} · {level}',
+  'month.year': '{month} {year}',
+  'action.refresh': 'Refresh',
+  'action.retry': 'Retry',
+  'action.close': 'Close',
+  'action.prevMonth': 'Previous month',
+  'action.nextMonth': 'Next month',
+  'action.today': 'Today',
+  'panel.updatedAt': 'Updated at {time}',
+  'weekday.mon': 'M',
+  'weekday.tue': 'T',
+  'weekday.wed': 'W',
+  'weekday.thu': 'T',
+  'weekday.fri': 'F',
+  'weekday.sat': 'S',
+  'weekday.sun': 'S',
+  'month.names': 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec',
+}
+//#endregion
+//#region plugin body
+/** Services required by the client plugin body. */
+const inject = ['slots', 'locale']
+/**
+ * Client plugin body: register dictionaries and the sidebar account panel.
+ * @param ctx - client root context.
+ */
+function apply(ctx: ClientContext) {
+  if (typeof ctx.inject === 'function')
+    try {
+      ctx.inject(['sessions', 'modelDirectories'], (linked) => {
+        const value = {
+          sessions: linked.sessions,
+          modelDirectories: linked.modelDirectories,
+        }
+        setFollowServices(value)
+        linked.effect(() => () => {
+          if (followServices === value) setFollowServices(null)
+        })
+      })
+    } catch {
+      /* Older Hosts keep the manual panel. */
+    }
+  ctx.effect(
+    () => ctx.locale.register(NS, { zh, en }),
+    'usage-stats: dictionaries',
+  )
+  ctx.slots.inject('sidebar.footer.action', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.footer.action',
+        id: 'usage-stats',
+        locale: NS,
+        order: 10,
+      },
+      UsageStatsPanel,
+    ),
+  )
+  ctx.slots.inject('conversation.input.right', () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.input.right',
+        id: 'usage-stats-model-quota',
+        locale: NS,
+        order: 20,
+        inject: (sessionId: string) => ({ sessionId }),
+      },
+      ModelQuotaReadout,
+    ),
+  )
+  // Official and generic pi-ai provider cards use these settings namespaces.
+  for (const key of [
+    'llm-pi-ai',
+    'llm-deepseek',
+    'llm-deepseek-api-key',
+    'llm-deepseek-account',
+  ]) {
+    ctx.slots.inject('settings.models.provider-card', () =>
+      ctx.slots.register(
+        {
+          name: 'settings.models.provider-card',
+          key,
+          id: 'usage-stats-provider-' + key,
+          order: 100,
+        },
+        ProviderMonitorSettings,
+      ),
+    )
+  }
+}
+//#endregion
+export {
+  watchSessionProvider,
+  setFollowServices,
+  FOLLOW_STORAGE_KEY,
+  readFollowPreference,
+  apply,
+  inject,
+  UsageStatsPanel,
+  ModelQuotaReadout,
+  QuotaRings,
+  quotaRingWindows,
+  quotaWindowPeriod,
+  composerQuotaShape,
+  quotaRingLevel,
+  ProviderMonitorSettings,
+  useSessionProviderId,
+  DayDetail,
+  buildProviderUsage,
+  ProviderUsageBreakdown,
+  ProviderAccountCard,
+  QuotaHoverCard,
+  MonthHeatmap,
+  buildMonthHeatmap,
+  cellColor,
+  createLoader,
+  buildProviderChoices,
+  accountRequestHeaders,
+  modelLabelOf,
+  fmt,
+  fmtCurrency,
+  budgetWindowText,
+  buildSessionCostRows,
+  sessionCostMeta,
+  badgeAccountValue,
+  badgeWarnOf,
+  shouldDismissPanel,
+  safeDiagnosticReason,
+  formatResetCountdown,
+  tariffWindowText,
+  enableFooterActionWrapping,
+  providerChoiceLabel,
+  SELECTED_PROVIDER_STORAGE_KEY,
+  authoritativeProviderList,
+  readSelectedProvider,
+  reconcileSelectedProvider,
+  writeSelectedProvider,
+}

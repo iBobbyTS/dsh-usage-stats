@@ -44,7 +44,8 @@
     "docs/quota-service-contract.md",
     "docs/configuration.md",
     "docs/usage-and-api.md",
-    "docs/development.md"
+    "docs/development.md",
+    "src"
   ],
   "type": "module",
   "main": "lib/index.js",
@@ -52,7 +53,7 @@
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./quota": {
-      "types": "./lib/quota-protocol.d.ts",
+      "types": "./lib/quota.d.ts",
       "default": "./lib/quota.js"
     },
     "./pricing": "./lib/pricing.js",
@@ -72,10 +73,10 @@
     }
   },
   "scripts": {
-    "check": "npm run check:release && node --check lib/index.js && node --check lib/usage.js && node --check lib/billing.js && node --check lib/pricing.js && node --check lib/network.js && node --check lib/provider-identity.js && node --check lib/provider-options.js && node --check lib/balance.js && node --check lib/subscriptions.js && node --check lib/accounts.js && node --check lib/export.js && node --check lib/client.js && node --check scripts/install.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-overlay-layering.mjs && node --check scripts/test-bundle.mjs && node --check scripts/test-install.mjs && node --check scripts/test-server.mjs && node --check scripts/test-export.mjs && node --check scripts/test-provider-identity.mjs && node --check scripts/test-provider-options.mjs && node --check scripts/test-pricing.mjs && node --check scripts/test-billing.mjs && node --check scripts/test-balance.mjs && node --check scripts/test-subscriptions.mjs && node --check scripts/test-accounts.mjs && node --check scripts/test-codearts-credits.mjs && node --check scripts/test-providers-hub-integration.mjs && node --check scripts/release-metadata.mjs && node --check scripts/check-release-metadata.mjs && node --check scripts/sync-release-version.mjs && node --check scripts/validate-fold.mjs && node --check scripts/verify-raw.mjs && node --check scripts/check-balance.mjs && node --check lib/ark-coding-plan.js && node --check scripts/test-ark-coding-plan.mjs && node --check scripts/test-follow-session.mjs && node --check lib/quota.js && node --check scripts/test-quota.mjs && node --check scripts/test-quota-integration.mjs",
+    "check": "node scripts/check.mjs all",
     "check:release": "node scripts/check-release-metadata.mjs",
     "release:sync": "node scripts/sync-release-version.mjs",
-    "test": "npm run test:bundle && npm run test:client && npm run test:overlay && npm run test:server && npm run test:export && npm run test:provider-identity && npm run test:provider-options && npm run test:pricing && npm run test:billing && npm run test:balance && npm run test:subscriptions && npm run test:accounts && npm run test:codearts-credits && npm run test:install && npm run test:ark-coding-plan && npm run test:follow-session && npm run test:quota",
+    "test": "node scripts/check.mjs test",
     "test:bundle": "node scripts/test-bundle.mjs",
     "test:client": "node scripts/smoke-client.mjs",
     "test:overlay": "node scripts/test-overlay-layering.mjs",
@@ -91,20 +92,42 @@
     "test:accounts": "node scripts/test-accounts.mjs",
     "test:codearts-credits": "node scripts/test-codearts-credits.mjs",
     "validate:live": "node scripts/validate-fold.mjs && node scripts/verify-raw.mjs",
-    "prepublishOnly": "npm run check && npm test",
     "test:providers-hub": "node scripts/test-providers-hub-integration.mjs",
     "test:ark-coding-plan": "node scripts/test-ark-coding-plan.mjs",
     "test:follow-session": "node scripts/test-follow-session.mjs",
     "test:quota": "node --test scripts/test-quota.mjs",
-    "test:quota-integration": "node scripts/test-quota-integration.mjs"
+    "test:quota-integration": "node scripts/test-quota-integration.mjs",
+    "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "check:dist": "node scripts/check.mjs dist",
+    "test:behavior": "pnpm run test:bundle && pnpm run test:client && pnpm run test:overlay && pnpm run test:server && pnpm run test:export && pnpm run test:provider-identity && pnpm run test:provider-options && pnpm run test:pricing && pnpm run test:billing && pnpm run test:balance && pnpm run test:subscriptions && pnpm run test:accounts && pnpm run test:codearts-credits && pnpm run test:install && pnpm run test:ark-coding-plan && pnpm run test:follow-session && pnpm run test:quota"
   },
   "devDependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-test-renderer": "^18.3.1"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-test-renderer": "18.3.1",
+    "typescript": "5.9.3",
+    "tsdown": "0.22.14",
+    "@types/node": "22.20.5",
+    "@types/react": "18.3.31",
+    "@deepseek-ai/cordis": "4.1.0",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.25.12",
+    "yaml": "2.8.1",
+    "@deepseek-ai/dsh-host-webserver": "0.2.2-rc.1"
   },
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

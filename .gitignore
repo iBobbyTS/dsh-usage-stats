@@ -4,3 +4,7 @@ output/
 coverage/
 *.log
 .DS_Store
+
+node_modules/
+.build/
+*.tgz

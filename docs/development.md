@@ -3,16 +3,16 @@
 ## 开发与验证 / Development
 
 ```bash
-npm install
-npm run check
-npm test
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
 npm pack --json
 ```
 
-`npm test` 完全离线，覆盖 bundle、客户端渲染与请求竞态、服务端安全边界、余额/Token Plan adapter、缓存和安装器幂等性。真实数据验证需先运行 `dsh web`：
+`pnpm test` 完全离线，覆盖 bundle、客户端渲染与请求竞态、服务端安全边界、余额/Token Plan adapter、缓存和安装器幂等性。真实数据验证需先运行 `dsh web`：
 
 ```bash
-npm run validate:live
+pnpm validate:live
 node scripts/check-balance.mjs
 ```
 
@@ -25,7 +25,7 @@ This fork is installed from `https://github.com/iBobbyTS/dsh-usage-stats.git` or
 
 For a local candidate, run `npm pack --json` and install the resulting `.tgz` in the intended DSH profile. Restart that profile's Host; a browser refresh alone cannot reload Host code. Report installed-runtime acceptance separately from source tests.
 
-`npm run check:release` checks package identity, entrypoints, lockfile and README version consistency. `npm run release:sync -- <version>` updates version fields and the README marker; it does not publish or create a fork registry/market distribution.
+`pnpm check:release` checks package identity, entrypoints, lockfile and README version consistency. `pnpm release:sync <version>` updates version fields and the README marker; it does not publish or create a fork registry/market distribution.
 
 ## Inherited upstream release material
 
@@ -42,3 +42,11 @@ Forked from [Ychris12138/dsh-usage-stats](https://github.com/Ychris12138/dsh-usa
 本项目重新实现统一 account protocol、adapter 与单供应商 UI，不复制参考项目界面。
 
 [MIT](../LICENSE).
+
+## Source, build and distribution
+
+Edit `src/*.ts`; `lib/` JS, source maps and quota declarations are generated and committed together. `view-protocol.ts` owns the shared public account/usage views; Host credentials, network adapters and file I/O stay outside the browser graph. Public module exports keep their existing paths.
+
+Use Node 24.11.0 and the pinned pnpm version. Run `pnpm install --frozen-lockfile`, `pnpm typecheck`, and `pnpm build:runtime`. `pnpm test` prepares and tests an isolated candidate; `pnpm check:dist` independently rebuilds, compares the entire generated file set, packs the candidate and verifies clean tarball/Git installation. `pnpm check` reuses one candidate build for behavior and distribution checks. Installation runs no plugin compiler hook.
+
+The package version is owned by package.json. Release synchronization updates that file and the README marker; pnpm's root importer has no package version field. Release checks compare the lockfile's actual dependency specifiers with package.json. Cross-plugin quota/autosave tests take an explicit ChatGPT candidate directory; autosave compilation uses this project's declared esbuild dependency. Providers Hub integration continues to require its explicit external candidate. Default tests remain offline and single-repository.

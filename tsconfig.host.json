@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/client.ts",
+    "src/client/**",
+    "src/client-contract.ts"
+  ]
+}

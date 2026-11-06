@@ -1,3 +1,4 @@
+import {parse} from "yaml";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { EXPECTED_PACKAGE_NAME, EXPECTED_REPOSITORY, SEMVER } from "./release-metadata.mjs";
@@ -8,7 +9,7 @@ async function json(path) {
 
 const [pkg, lock, patch, client, readme] = await Promise.all([
 	json("package.json"),
-	json("package-lock.json"),
+	readFile("pnpm-lock.yaml", "utf8").then(parse),
 	readFile("cordis.patch.yml", "utf8"),
 	readFile("lib/client.js", "utf8"),
 	readFile("README.md", "utf8")
@@ -33,10 +34,12 @@ const releaseNotes = `docs/release-notes-v${pkg.version.replace(/[-+].*$/, "")}.
 assert.ok(pkg.files?.includes(releaseNotes), `npm files is missing current release notes: ${releaseNotes}`);
 await readFile(releaseNotes, "utf8");
 
-assert.equal(lock.name, pkg.name, "package-lock root name drifted");
-assert.equal(lock.version, pkg.version, "package-lock root version drifted");
-assert.equal(lock.packages?.[""]?.name, pkg.name, "package-lock package name drifted");
-assert.equal(lock.packages?.[""]?.version, pkg.version, "package-lock package version drifted");
+for (const group of ['dependencies','devDependencies','optionalDependencies']) {
+ for (const [name,specifier] of Object.entries(pkg[group] ?? {})) {
+  assert.equal(lock.importers?.['.']?.[group]?.[name]?.specifier,specifier, `pnpm lock specifier drift: ${name}`)
+ }
+}
+assert.match(pkg.packageManager,/^pnpm@\d+\.\d+\.\d+$/);
 
 const escapedName = pkg.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 assert.match(patch, new RegExp(`^\\s*name:\\s*"${escapedName}"\\s*$`, "m"), "Cordis YAML must quote the scoped package identity");

@@ -3,17 +3,20 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import {tmpdir} from 'node:os';
+import { realpathSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { createQuotaRegistry } from '../lib/quota.js';
 import { createAccountService } from '../lib/accounts.js';
-const plugin = resolve(process.argv[2] ?? '../dsh-plugin-chatgpt');
+if (!process.argv[2]) throw new Error('Pass the prepared ChatGPT candidate directory');
+const plugin = resolve(process.argv[2]);
 const peer = createRequire(join(plugin, 'package.json'));
 const { Context } = await import(pathToFileURL(peer.resolve('@deepseek-ai/cordis')).href);
 const { CodexQuota, registerCodexQuota } = await import(pathToFileURL(join(plugin, 'lib/codex-quota.js')).href);
-const base = resolve('.agent-work/tmp/quota-integration'); mkdirSync(base, { recursive: true });
-const dir = mkdtempSync(join(base, 'case-'));
-const ctx = new Context();
+const base = realpathSync(tmpdir());
+const dir = mkdtempSync(join(base, 'usage-quota-integration-'));
 const forks = [];
+try {
+const ctx = new Context();
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
 let refreshes = 0;
 const auth = join(dir, 'auth.json');
@@ -24,7 +27,6 @@ const quotaOwner = new CodexQuota(join(dir, 'state'), async (url, init) => {
   return Response.json({ plan_type: 'plus', rate_limit: { primary_window: { used_percent: 15, limit_window_seconds: 18000 }, secondary_window: { used_percent: 60, limit_window_seconds: 604800 } } });
 });
 quotaOwner.select(auth, true, '独立监控账号');
-try {
   const producer = ctx.plugin(inner => registerCodexQuota(inner, quotaOwner, 'custom-chatgpt'));
   forks.push(producer); await settle();
   assert.equal(ctx.get('usageQuota'), undefined, 'producer remains active without stats');

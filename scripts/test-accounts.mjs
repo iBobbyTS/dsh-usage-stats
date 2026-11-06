@@ -2147,12 +2147,7 @@ console.log("IPv4/IPv6 private-address classification ok");
 	console.log("Node 24 pinned request disables inner network-family autoselection ok");
 }
 
-{
-	const source = readFileSync(new URL("../lib/accounts.js", import.meta.url), "utf8");
-	assert.match(source, /request\.on\("socket",\s*\(socket\)\s*=>\s*\{[^}]*socket\.on\("error"/, "pinned request must forward connect-phase socket errors to the request (#42)");
-	assert.match(source, /lookup:[\s\S]*process\.nextTick\(\(\) => \{/, "pinned lookup must defer address delivery before connect");
-	console.log("pinned request socket error backstop present ok");
-}
+// Socket forwarding is exercised below through real refused connections and child-process regressions.
 
 {
 	// Process-level regression for #111: the public queryAccount() API must
