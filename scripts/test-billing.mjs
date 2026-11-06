@@ -1,3 +1,5 @@
+// Fixed UTC samples below assert UTC day keys, independently of the machine.
+process.env.TZ = 'UTC';
 import assert from "node:assert/strict";
 
 import {

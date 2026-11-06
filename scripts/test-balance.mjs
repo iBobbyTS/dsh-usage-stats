@@ -18,7 +18,17 @@ assert.equal(balanceSchemeOf("anthropic"), null);
 console.log("scheme mapping ok");
 
 // Endpoint derivation from a configured base URL.
+const originalFetch = globalThis.fetch;
 async function stubFetchOnce(payload, status = 200) {
+	const calls = [];
+	globalThis.fetch = async (url, options) => {
+		calls.push({ url: String(url), options });
+		return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
+	};
+	return calls;
+}
+
+{
 	const calls = await stubFetchOnce({ data: { available_balance: 5.5, cash_balance: 3.0, voucher_balance: 2.5, currency: "CNY" } });
 	const balance = await queryBalance("moonshot", "https://api.moonshot.cn", "sk-test");
 	assert.equal(calls[0].url, "https://api.moonshot.cn/v1/users/me/balance");
@@ -53,7 +63,6 @@ async function stubFetchOnce(payload, status = 200) {
 	);
 	console.log("upstream JSON error classification ok");
 }
-
-delete globalThis.fetch;
+globalThis.fetch = originalFetch;
 assert.deepEqual(supportedBalanceSchemes().sort(), ["deepseek", "moonshot", "openrouter", "zai"]);
 console.log("BALANCE TESTS PASSED");

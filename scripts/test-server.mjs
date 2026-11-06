@@ -1,3 +1,5 @@
+// Fixed UTC fixtures and expected day keys share one explicit timezone.
+process.env.TZ = 'UTC';
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
