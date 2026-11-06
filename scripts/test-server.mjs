@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CACHE_VERSION as CACHE_SCHEMA } from "../lib/index.js";
+import { applyUsageDelta, createUsageState } from "../lib/usage.js";
 import { pricingFingerprint } from "../lib/billing.js";
 
 function usageEvent(seq, inputTokens) {
@@ -2098,6 +2099,51 @@ async function testExactInheritedOwnership(root) {
 	assert.equal(disk.includes("private-prompt-marker"), false);
 }
 
+async function testNestedForkMarkers(root) {
+	const home = join(root, "nested-fork-markers");
+	let plugin = await freshModule("nested-fork-markers", home);
+	const marker = (seq) => ({ seq, time: Date.UTC(2026, 7, 13), type: "session/end-seed", data: { inherited: true } });
+	const parentEvents = [usageEvent(0, 10)];
+	const childEvents = [...parentEvents, marker(1), usageEvent(2, 5)];
+	const nestedEvents = [...childEvents, marker(3), usageEvent(4, 2)];
+	const logs = new Map([["parent", parentEvents], ["child", childEvents], ["nested", nestedEvents]]);
+	const revisions = new Map([...logs.keys()].map(id => [id, "r1"]));
+	const headers = new Map([["parent", { inheritedEventCount: 0 }], ["child", { isSeeded: true, inheritedEventCount: 1 }], ["nested", { isSeeded: true, inheritedEventCount: 3 }]]);
+	const { api, counters } = currentPersistenceApi(logs, revisions, void 0, headers);
+	const ctx = makeContext({ sessions: { list: () => [] }, persistence: { list: api.list, open: api.open } });
+	assert.equal((await plugin.collectUsage(ctx)).total.tokens, 17, "nested markers cannot replace the handle's own inherited cut");
+
+	// An existing derived cache may already contain the ancestor's cut even
+	// though the source revision is unchanged. The current cache version refolds it.
+	const path = join(home, "storages", "usage-stats-cache.json");
+	const stale = JSON.parse(await readFile(path, "utf8"));
+	stale.version = CACHE_SCHEMA - 1;
+	stale.sessions.nested.inheritedEventCount = 1;
+	await writeFile(path, JSON.stringify(stale));
+	plugin = await freshModule("nested-fork-markers-stale-cache", home);
+	assert.equal((await plugin.collectUsage(ctx)).total.tokens, 17, "unchanged logs correct an earlier cached ancestor cut after upgrade");
+	assert.equal(JSON.parse(await readFile(path, "utf8")).sessions.nested.inheritedEventCount, 3);
+	const reads = counters.reads.length;
+	plugin = await freshModule("nested-fork-markers-restart", home);
+	assert.equal((await plugin.collectUsage(ctx)).total.tokens, 17);
+	assert.equal(counters.reads.length, reads, "correct current cache remains read-free across restart");
+
+	const live = { id: "nested", header: { isSeeded: true }, inheritedEventCount: 3,
+		get seq() { return nestedEvents.length; }, snapshotEvents: (from = 0) => nestedEvents.slice(from) };
+	const liveCtx = makeContext({ sessions: { list: () => [live] }, persistence: { list: api.list, open: api.open } });
+	assert.equal((await plugin.collectUsage(liveCtx)).total.tokens, 17, "live refolds respect their own metadata too");
+	nestedEvents.push(usageEvent(5, 3));
+	assert.equal((await plugin.collectUsage(liveCtx)).total.tokens, 20, "live incremental usage is added once");
+
+	const independent = createUsageState();
+	independent.inheritedEventCount = 0;
+	applyUsageDelta(independent, nestedEvents);
+	assert.equal(independent.inheritedEventCount, 0, "an explicit zero cut is authoritative");
+	const withoutMetadata = createUsageState();
+	applyUsageDelta(withoutMetadata, nestedEvents);
+	assert.equal(withoutMetadata.inheritedEventCount, 3, "the marker fallback uses the newest fork boundary");
+}
+
 async function testIndependentAndCorrectedSampleOwnership(root) {
 	const plugin = await freshModule("sample-ownership", join(root, "sample-ownership"));
 	const chunk = { seq: 0, time: Date.UTC(2026, 7, 13), type: "assistant/chunk", data: {
@@ -2182,6 +2228,7 @@ try {
 	await testLiveSeededSessionUsesExactCut(root);
 	await testUnreadableMigrationRetriesAfterRestart(root);
 	await testExactInheritedOwnership(root);
+	await testNestedForkMarkers(root);
 	await testIndependentAndCorrectedSampleOwnership(root);
 	await testLiveLogShrink(root);
 	await testZeroUsageRowsFiltered(root);
