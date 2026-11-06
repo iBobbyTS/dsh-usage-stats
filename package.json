@@ -4,10 +4,10 @@
   "version": "0.3.7",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ychris12138/dsh-usage-stats.git"
+    "url": "git+https://github.com/iBobbyTS/dsh-usage-stats.git"
   },
-  "homepage": "https://github.com/Ychris12138/dsh-usage-stats#readme",
-  "bugs": "https://github.com/Ychris12138/dsh-usage-stats/issues",
+  "homepage": "https://github.com/iBobbyTS/dsh-usage-stats#readme",
+  "bugs": "https://github.com/iBobbyTS/dsh-usage-stats/issues",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -41,7 +41,10 @@
     "docs/opencode-usage-sources.md",
     "docs/credit-balance-service-contract.md",
     "docs/follow-current-session.md",
-    "docs/quota-service-contract.md"
+    "docs/quota-service-contract.md",
+    "docs/configuration.md",
+    "docs/usage-and-api.md",
+    "docs/development.md"
   ],
   "type": "module",
   "main": "lib/index.js",

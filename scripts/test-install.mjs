@@ -111,6 +111,11 @@ try {
 	const installed = JSON.parse(await readFile(join(installedRoot, "package.json"), "utf8"));
 	assert.equal(installed.name, "@ychris12138/dsh-usage-stats");
 	assert.equal(installed.dsh?.bundle?.patch, "./cordis.patch.yml");
+	const installedReadme = await readFile(join(installedRoot, "README.md"), "utf8");
+	for (const [, target] of installedReadme.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+		if (target.includes("://") || target.startsWith("#")) continue;
+		await access(join(installedRoot, target.split("#")[0]));
+	}
 	assert.match(
 		await readFile(join(installedRoot, "cordis.patch.yml"), "utf8"),
 		/^\s+name:\s+"@ychris12138\/dsh-usage-stats"\s*$/m

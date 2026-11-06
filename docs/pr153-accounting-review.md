@@ -25,9 +25,9 @@ and the [handle contract](https://github.com/deepseek-ai/deepseek-harness/blob/f
 - Compaction IDs have a separate replacement ledger; interleaved assistant
   chunk/final samples and corrected compaction summaries do not double count.
 - Empty/failed full reads keep cached folds and the old revision for retry.
-  Schema 10 refolds readable older sources and preserves unavailable aggregates.
+  Schema 11 refolds readable older sources and preserves unavailable aggregates. Exact handle/Session metadata takes precedence; only when it is unavailable does the last inherited seed marker supply the cut.
 
-## Validation and limits
+## Historical validation (2026-10-29) and continuing limits
 
 Synthetic server regressions cover modern live forks without parent IDs, exact
 read-handle metadata, child-before-parent reads, partial same-day parent history,
@@ -44,7 +44,7 @@ fallbacks and cannot be retrospectively deduplicated. Partial sources whose
 normalized sample identities cannot be matched are also retained. The cache now
 stores normalized per-sample evidence and can be larger than prior aggregate-only
 caches. Back up the old cache before a production upgrade; downgrading to a plugin
-that does not understand schema 10 may require rebuilding readable source logs.
+that does not understand schema 11 may require rebuilding readable source logs.
 
 Automated fixtures establish these contracts, not a real account's billing
 reconciliation or exact agreement with a provider console. No real credentials

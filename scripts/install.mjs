@@ -18,7 +18,7 @@ if (args.has("--help")) {
 	console.log(`dsh-usage-stats installer
 
 Usage:
-  npx --yes github:Ychris12138/dsh-usage-stats [options]
+  node scripts/install.mjs [options]
 
 Options:
   --check      Verify the installed package and Cordis patch without changing them
@@ -153,7 +153,7 @@ if (args.has("--check")) {
 }
 
 await mkdir(target, { recursive: true });
-for (const entry of ["lib", "cordis.patch.yml", "package.json", "README.md", "LICENSE", "SECURITY.md"]) {
+for (const entry of ["lib", "docs", "cordis.patch.yml", "package.json", "README.md", "LICENSE", "SECURITY.md"]) {
 	await cp(join(sourceRoot, entry), join(target, entry), { recursive: true, force: true });
 }
 await mkdir(join(target, "scripts"), { recursive: true });
