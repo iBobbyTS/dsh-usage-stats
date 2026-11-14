@@ -6,6 +6,9 @@
     "type": "git",
     "url": "git+https://github.com/iBobbyTS/dsh-usage-stats.git"
   },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
   "homepage": "https://github.com/iBobbyTS/dsh-usage-stats#readme",
   "bugs": "https://github.com/iBobbyTS/dsh-usage-stats/issues",
   "keywords": [
